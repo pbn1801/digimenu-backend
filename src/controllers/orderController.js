@@ -120,8 +120,8 @@ const addOrder = asyncHandler(async (req, res) => {
   // Emit WebSocket event
   const io = req.app.get('io');
   const populatedOrder = await Order.findById(order._id)
-    .populate('table_id', 'name')
-    .populate('items.item_id', 'name price');
+    .populate('table_id', 'name table_number')
+    .populate('items.item_id', 'restaurant_id name price description image_url category_id order_count');
   io.emit('new_pending_order', populatedOrder);
 
   res.status(201).json({
@@ -150,7 +150,7 @@ const getPendingOrders = asyncHandler(async (req, res) => {
     status: 'Đang chờ',
   })
     .populate('table_id', 'name table_number')
-    .populate('items.item_id', 'name price')
+    .populate('items.item_id', 'restaurant_id name price description image_url category_id order_count')
     .sort({ createdAt: -1 }); // Newest first
 
   res.status(200).json({
@@ -200,8 +200,8 @@ const approveOrder = asyncHandler(async (req, res) => {
   // Emit WebSocket event
   const io = req.app.get('io');
   const populatedOrder = await Order.findById(order._id)
-    .populate('table_id', 'name')
-    .populate('items.item_id', 'name price');
+    .populate('table_id', 'name table_number')
+    .populate('items.item_id', 'restaurant_id name price description image_url category_id order_count');
   io.emit('order_updated', populatedOrder);
 
   res.status(200).json({
@@ -229,7 +229,7 @@ const getAllOrders = asyncHandler(async (req, res) => {
     restaurant_id: req.user.restaurant_id,
   })
     .populate('table_id', 'name table_number')
-    .populate('items.item_id', 'name price')
+    .populate('items.item_id', 'restaurant_id name price description image_url category_id order_count')
     .sort({ createdAt: -1 }); // Newest first
 
   res.status(200).json({

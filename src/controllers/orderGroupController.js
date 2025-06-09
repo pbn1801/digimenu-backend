@@ -40,7 +40,10 @@ const getOrderGroups = asyncHandler(async (req, res) => {
     .populate('table_id', 'name table_number')
     .populate({
       path: 'orders',
-      populate: { path: 'items.item_id', select: 'name price' },
+      populate: {
+        path: 'items.item_id',
+        select: 'restaurant_id name price description image_url category_id order_count',
+      },
     })
     .sort(payment_status === 'Đã thanh toán' ? { payment_date: -1 } : { createdAt: -1 });
 
@@ -147,10 +150,13 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
 
     // Phát sự kiện order_group_updated trước
     const populatedOrderGroup = await OrderGroup.findById(orderGroup._id)
-      .populate('table_id', 'name')
+      .populate('table_id', 'name table_number')
       .populate({
         path: 'orders',
-        populate: { path: 'items.item_id', select: 'name price' },
+        populate: {
+          path: 'items.item_id',
+          select: 'restaurant_id name price description image_url category_id order_count',
+        },
       });
     io.emit('order_group_updated', populatedOrderGroup);
 
