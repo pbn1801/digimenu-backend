@@ -47,7 +47,6 @@ const getOrderGroups = asyncHandler(async (req, res) => {
     })
     .sort(payment_status === 'Đã thanh toán' ? { payment_date: -1 } : { createdAt: -1 });
 
-  // For tab 2 ("Đã nhận"): Only include OrderGroups with at least one order having status "Đã nhận"
   let filteredOrderGroups = orderGroups;
   if (payment_status === 'Chưa thanh toán') {
     filteredOrderGroups = orderGroups.filter(orderGroup =>
@@ -64,9 +63,9 @@ const getOrderGroups = asyncHandler(async (req, res) => {
 
 /**
  * @swagger
- * /order-groups/{id}:
+ * /order-groups/{id}/pay:
  *   put:
- *     summary: Update an order group (e.g., mark as paid) (Staff or Admin only)
+ *     summary: Update an order group payment status (Staff or Admin only)
  *     tags: [OrderGroups]
  *     security:
  *       - bearerAuth: []
@@ -95,7 +94,7 @@ const getOrderGroups = asyncHandler(async (req, res) => {
  *         description: Staff or Admin access required
  */
 const updateOrderGroup = asyncHandler(async (req, res) => {
-  const io = req.app.get('io'); // Lấy io ngay từ đầu để dùng trong các trường hợp lỗi
+  const io = req.app.get('io');
 
   try {
     const { payment_method } = req.body;
@@ -106,7 +105,6 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
     });
 
     if (!orderGroup) {
-      // Phát sự kiện error_notification
       io.emit('error_notification', {
         error_type: 'OrderGroupNotFound',
         message: 'Order group not found',
@@ -117,10 +115,8 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
       throw new Error('Order group not found');
     }
 
-    // Lưu trạng thái cũ để kiểm tra
     const oldPaymentStatus = orderGroup.payment_status;
 
-    // Update payment status and method
     if (payment_method) {
       orderGroup.payment_method = payment_method;
       orderGroup.payment_status = 'Đã thanh toán';
@@ -129,26 +125,23 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
 
     await orderGroup.save();
 
-    // Reset table
     const table = await Table.findById(orderGroup.table_id);
     if (table) {
-      const previousStatus = table.status; // Lưu trạng thái cũ
+      const previousStatus = table.status;
       table.current_order_group = null;
       table.status = 'Trống';
       await table.save();
 
-      // Phát sự kiện table_status_updated
       io.emit('table_status_updated', {
         table_id: table._id,
         name: table.name,
-        table_number: table.name, // name là số bàn trong schema
+        table_number: table.name,
         status: table.status,
         previous_status: previousStatus,
         timestamp: new Date().toISOString(),
       });
     }
 
-    // Phát sự kiện order_group_updated trước
     const populatedOrderGroup = await OrderGroup.findById(orderGroup._id)
       .populate('table_id', 'name table_number')
       .populate({
@@ -160,13 +153,11 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
       });
     io.emit('order_group_updated', populatedOrderGroup);
 
-    // Tạo Invoice nếu trạng thái mới là "Đã thanh toán" và trạng thái cũ không phải
     let invoice;
     if (orderGroup.payment_status === 'Đã thanh toán' && oldPaymentStatus !== 'Đã thanh toán') {
       try {
         invoice = await createInvoice(req, orderGroup);
       } catch (invoiceError) {
-        // Phát sự kiện error_notification nếu tạo Invoice thất bại
         io.emit('error_notification', {
           error_type: 'InvoiceCreationFailed',
           message: invoiceError.message || 'Failed to create invoice',
@@ -177,7 +168,6 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
       }
     }
 
-    // Phát sự kiện invoice_created sau khi tạo Invoice
     if (invoice) {
       const populatedInvoice = await Invoice.findById(invoice._id)
         .populate('table_id', 'name table_number');
@@ -195,15 +185,61 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
       data: orderGroup,
     });
   } catch (error) {
-    // Phát sự kiện error_notification cho các lỗi tổng quát
     io.emit('error_notification', {
       error_type: 'GeneralError',
       message: error.message || 'An unexpected error occurred',
       related_id: req.params.id || 'N/A',
       timestamp: new Date().toISOString(),
     });
-    throw error; // Để asyncHandler xử lý lỗi
+    throw error;
   }
 });
 
-export { getOrderGroups, updateOrderGroup };
+/**
+ * @swagger
+ * /order-groups/{id}:
+ *   get:
+ *     summary: Get order group details by ID (Staff or Admin only)
+ *     tags: [OrderGroups]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Order group details
+ *       404:
+ *         description: Order group not found
+ *       403:
+ *         description: Staff or Admin access required
+ */
+const getOrderGroupById = asyncHandler(async (req, res) => {
+  const orderGroup = await OrderGroup.findOne({
+    _id: req.params.id,
+    restaurant_id: req.user.restaurant_id,
+  })
+    .populate('table_id', 'name table_number')
+    .populate({
+      path: 'orders',
+      populate: {
+        path: 'items.item_id',
+        select: 'restaurant_id name price description image_url category_id order_count',
+      },
+    });
+
+  if (!orderGroup) {
+    res.status(404);
+    throw new Error('Order group not found');
+  }
+
+  res.status(200).json({
+    success: true,
+    data: orderGroup,
+  });
+});
+
+export { getOrderGroups, updateOrderGroup, getOrderGroupById };
