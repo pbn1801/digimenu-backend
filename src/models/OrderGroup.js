@@ -45,5 +45,6 @@ const orderGroupSchema = new mongoose.Schema(
 // Index cho truy vấn nhanh
 orderGroupSchema.index({ restaurant_id: 1 });
 orderGroupSchema.index({ table_id: 1 });
+orderGroupSchema.index({ payment_date: 1 }); // Thêm index cho payment_date
 
 export default mongoose.model('OrderGroup', orderGroupSchema);
