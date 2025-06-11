@@ -3,31 +3,28 @@ import User from '../models/User.js';
 
 /**
  * @swagger
- * /users/me:
+ * /admin/users:
  *   get:
- *     summary: Get current user's information (Staff or Admin only)
- *     tags: [User]
+ *     summary: Get all users (Admin only)
+ *     tags: [Admin]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: User information
- *       401:
- *         description: Not authorized
+ *         description: List of users
+ *       403:
+ *         description: Admin access required
  */
-const getCurrentUser = asyncHandler(async (req, res) => {
-  // Logic: Dùng req.user từ middleware protect, trả về thông tin người dùng hiện tại
+const getAllUsers = asyncHandler(async (req, res) => {
+  // Logic: Query User theo restaurant_id từ req.user, trả về danh sách người dùng
+  const users = await User.find({ restaurant_id: req.user.restaurant_id })
+    .select('-password')
+    .sort({ createdAt: -1 });
   res.status(200).json({
     success: true,
-    data: {
-      id: req.user._id,
-      username: req.user.username,
-      role: req.user.role,
-      email: req.user.email,
-      phone_number: req.user.phone_number,
-      restaurant_id: req.user.restaurant_id,
-    },
+    count: users.length,
+    data: users,
   });
 });
 
-export { getCurrentUser };
+export { getAllUsers };
