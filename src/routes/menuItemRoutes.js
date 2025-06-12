@@ -8,11 +8,13 @@ import {
   getMenuItemsByCategory,
   updateMenuItem,
   deleteMenuItem,
+  getMenuItemsGroupedByCategory,
 } from '../controllers/menuItemController.js';
 
 const router = express.Router();
 
 // Public routes (no authentication required)
+router.get('/grouped-by-category', getMenuItemsGroupedByCategory); // Lấy tất cả món ăn theo danh mục
 router.get('/', getMenuItems); // Lấy danh sách món ăn
 router.get('/:id', getMenuItemById); // Lấy chi tiết món ăn theo ID
 router.get('/category/:category_id', getMenuItemsByCategory); // Lấy danh sách món ăn theo danh mục

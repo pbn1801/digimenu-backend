@@ -190,7 +190,7 @@ const getMenuItemById = asyncHandler(async (req, res) => {
  *                           _id:
  *                             type: string
  *                           name:
- *                             type: string
+ *                           type: string
  *                       order_count:
  *                         type: number
  *                       status:
@@ -238,6 +238,126 @@ const getMenuItemsByCategory = asyncHandler(async (req, res) => {
     success: true,
     count: menuItems.length,
     data: menuItems,
+  });
+});
+
+/**
+ * @swagger
+ * /menu-items/grouped-by-category:
+ *   get:
+ *     summary: Get all menu items grouped by category (Public)
+ *     tags: [MenuItems]
+ *     responses:
+ *       200:
+ *         description: List of menu items grouped by category
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                   name:
+ *                     type: string
+ *                   products:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         price:
+ *                           type: number
+ *                         description:
+ *                           type: string
+ *                         image_url:
+ *                           type: string
+ *                         order_count:
+ *                           type: number
+ *                         status:
+ *                           type: string
+ *                           enum: ['visible', 'hidden']
+ *                         category_id:
+ *                           type: object
+ *                           properties:
+ *                             _id:
+ *                               type: string
+ *                             name:
+ *                               type: string
+ *                             status:
+ *                               type: string
+ *                               enum: ['visible', 'hidden']
+ *                         restaurant_id:
+ *                           type: object
+ *                           properties:
+ *                             _id:
+ *                               type: string
+ *                             name:
+ *                               type: string
+ */
+const getMenuItemsGroupedByCategory = asyncHandler(async (req, res) => {
+  // Sử dụng aggregation để nhóm theo category_id
+  const menuItems = await MenuItem.aggregate([
+    {
+      $lookup: {
+        from: 'categories', // Tên collection của Category trong MongoDB
+        localField: 'category_id',
+        foreignField: '_id',
+        as: 'category_details',
+      },
+    },
+    {
+      $unwind: {
+        path: '$category_details',
+        preserveNullAndEmptyArrays: true, // Giữ các item không có category
+      },
+    },
+    {
+      $group: {
+        _id: '$category_details._id',
+        name: { $first: '$category_details.name' },
+        status: { $first: '$category_details.status' },
+        products: {
+          $push: {
+            id: '$_id',
+            name: '$name',
+            price: '$price',
+            description: '$description',
+            image_url: '$image_url',
+            order_count: '$order_count',
+            status: '$status',
+            category_id: '$category_details',
+            restaurant_id: '$restaurant_id',
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        id: '$_id',
+        name: 1,
+        status: 1,
+        products: 1,
+      },
+    },
+  ]);
+
+  // Chuyển đổi dữ liệu để phù hợp với cấu trúc mong muốn
+  const responseData = menuItems.map((category) => ({
+    id: category._id || 'uncategorized',
+    name: category.name || 'Chưa phân loại',
+    products: category.products,
+  }));
+
+  res.status(200).json({
+    success: true,
+    count: responseData.reduce((sum, cat) => sum + cat.products.length, 0),
+    data: responseData,
   });
 });
 
@@ -535,4 +655,5 @@ export {
   getMenuItemsByCategory,
   updateMenuItem,
   deleteMenuItem,
+  getMenuItemsGroupedByCategory,
 };
