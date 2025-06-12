@@ -17,6 +17,11 @@ const categorySchema = new mongoose.Schema(
       ref: 'Restaurant',
       required: [true, 'Restaurant ID is required'],
     },
+    status: {
+      type: String,
+      enum: ['visible', 'hidden'],
+      default: 'visible',
+    },
   },
   { timestamps: true }
 );

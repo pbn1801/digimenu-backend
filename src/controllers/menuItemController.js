@@ -7,6 +7,242 @@ import fs from 'fs';
 
 /**
  * @swagger
+ * /menu-items:
+ *   get:
+ *     summary: Get all menu items (Public)
+ *     tags: [MenuItems]
+ *     responses:
+ *       200:
+ *         description: List of menu items
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 count:
+ *                   type: integer
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       price:
+ *                         type: number
+ *                       description:
+ *                         type: string
+ *                       image_url:
+ *                         type: string
+ *                       category_id:
+ *                         type: string
+ *                       order_count:
+ *                         type: number
+ *                       status:
+ *                         type: string
+ *                         enum: ['visible', 'hidden']
+ */
+const getMenuItems = asyncHandler(async (req, res) => {
+  const menuItems = await MenuItem.find()
+    .populate('category_id', 'name status')
+    .populate('restaurant_id', 'name');
+
+  res.status(200).json({
+    success: true,
+    count: menuItems.length,
+    data: menuItems,
+  });
+});
+
+/**
+ * @swagger
+ * /menu-items/{id}:
+ *   get:
+ *     summary: Get a menu item by ID (Public)
+ *     tags: [MenuItems]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Menu item details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     price:
+ *                       type: number
+ *                     description:
+ *                       type: string
+ *                     image_url:
+ *                       type: string
+ *                     category_id:
+ *                       type: object
+ *                       properties:
+ *                         _id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         status:
+ *                           type: string
+ *                           enum: ['visible', 'hidden']
+ *                     restaurant_id:
+ *                       type: object
+ *                       properties:
+ *                         _id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                     order_count:
+ *                       type: number
+ *                     status:
+ *                       type: string
+ *                       enum: ['visible', 'hidden']
+ *       404:
+ *         description: Menu item not found
+ */
+const getMenuItemById = asyncHandler(async (req, res) => {
+  const menuItem = await MenuItem.findById(req.params.id)
+    .populate('category_id', 'name status')
+    .populate('restaurant_id', 'name');
+
+  if (!menuItem) {
+    res.status(404);
+    throw new Error('Menu item not found');
+  }
+
+  res.status(200).json({
+    success: true,
+    data: menuItem,
+  });
+});
+
+/**
+ * @swagger
+ * /menu-items/category/{category_id}:
+ *   get:
+ *     summary: Get menu items by category (Public)
+ *     tags: [MenuItems]
+ *     parameters:
+ *       - in: path
+ *         name: category_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The category ID (use "null" to get unclassified items)
+ *     responses:
+ *       200:
+ *         description: List of menu items in the category
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 count:
+ *                   type: integer
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       price:
+ *                         type: number
+ *                       description:
+ *                         type: string
+ *                       image_url:
+ *                         type: string
+ *                       category_id:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           status:
+ *                             type: string
+ *                             enum: ['visible', 'hidden']
+ *                       restaurant_id:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                       order_count:
+ *                         type: number
+ *                       status:
+ *                         type: string
+ *                         enum: ['visible', 'hidden']
+ *       404:
+ *         description: Category not found
+ *       400:
+ *         description: Invalid category ID
+ */
+const getMenuItemsByCategory = asyncHandler(async (req, res) => {
+  const { category_id } = req.params;
+
+  // Validate category_id format
+  if (!category_id) {
+    res.status(400);
+    throw new Error('Category ID is required');
+  }
+
+  let queryCondition;
+
+  if (category_id.toLowerCase() === 'null') {
+    queryCondition = { category_id: null };
+  } else {
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(category_id);
+    if (!isValidObjectId) {
+      res.status(400);
+      throw new Error('Invalid category ID format');
+    }
+
+    const category = await Category.findById(category_id);
+    if (!category) {
+      res.status(404);
+      throw new Error('Category not found');
+    }
+
+    queryCondition = { category_id };
+  }
+
+  const menuItems = await MenuItem.find(queryCondition)
+    .populate('category_id', 'name status')
+    .populate('restaurant_id', 'name');
+
+  res.status(200).json({
+    success: true,
+    count: menuItems.length,
+    data: menuItems,
+  });
+});
+
+/**
+ * @swagger
  * /menu-items/add:
  *   post:
  *     summary: Add a new menu item (Admin only)
@@ -32,6 +268,10 @@ import fs from 'fs';
  *               category_id:
  *                 type: string
  *                 description: Optional, leave empty for unclassified
+ *               status:
+ *                 type: string
+ *                 enum: ['visible', 'hidden']
+ *                 default: 'visible'
  *     responses:
  *       201:
  *         description: Menu item created
@@ -41,21 +281,18 @@ import fs from 'fs';
  *         description: Admin access required
  */
 const addMenuItem = asyncHandler(async (req, res) => {
-  const { name, price, description, category_id } = req.body;
+  const { name, price, description, category_id, status } = req.body;
 
-  // Validate required fields
   if (!name || !price) {
     res.status(400);
     throw new Error('Name and price are required');
   }
 
-  // Check if restaurant_id exists in req.user
   if (!req.user || !req.user.restaurant_id) {
     res.status(400);
     throw new Error('Restaurant ID not found in user session');
   }
 
-  // Validate category_id if provided
   if (category_id) {
     const category = await Category.findById(category_id);
     if (!category) {
@@ -68,7 +305,6 @@ const addMenuItem = asyncHandler(async (req, res) => {
     }
   }
 
-  // Handle image upload to Cloudinary
   let image_url = null;
   if (req.file) {
     try {
@@ -100,7 +336,6 @@ const addMenuItem = asyncHandler(async (req, res) => {
     }
   }
 
-  // Create new menu item
   const menuItem = await MenuItem.create({
     restaurant_id: req.user.restaurant_id,
     name,
@@ -108,137 +343,16 @@ const addMenuItem = asyncHandler(async (req, res) => {
     description,
     image_url,
     category_id: category_id || null,
+    status: status || 'visible',
   });
 
-  // Populate category and restaurant for response
   const populatedMenuItem = await MenuItem.findById(menuItem._id)
-    .populate('category_id', 'name')
+    .populate('category_id', 'name status')
     .populate('restaurant_id', 'name');
 
   res.status(201).json({
     success: true,
     data: populatedMenuItem,
-  });
-});
-
-/**
- * @swagger
- * /menu-items:
- *   get:
- *     summary: Get all menu items (Public)
- *     tags: [MenuItems]
- *     responses:
- *       200:
- *         description: List of menu items
- */
-const getMenuItems = asyncHandler(async (req, res) => {
-  const menuItems = await MenuItem.find()
-    .populate('category_id', 'name')
-    .populate('restaurant_id', 'name');
-
-  res.status(200).json({
-    success: true,
-    count: menuItems.length,
-    data: menuItems,
-  });
-});
-
-/**
- * @swagger
- * /menu-items/{id}:
- *   get:
- *     summary: Get a menu item by ID (Public)
- *     tags: [MenuItems]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Menu item details
- *       404:
- *         description: Menu item not found
- */
-const getMenuItemById = asyncHandler(async (req, res) => {
-  const menuItem = await MenuItem.findById(req.params.id)
-    .populate('category_id', 'name')
-    .populate('restaurant_id', 'name');
-
-  if (!menuItem) {
-    res.status(404);
-    throw new Error('Menu item not found');
-  }
-
-  res.status(200).json({
-    success: true,
-    data: menuItem,
-  });
-});
-
-/**
- * @swagger
- * /menu-items/category/{category_id}:
- *   get:
- *     summary: Get menu items by category (Public)
- *     tags: [MenuItems]
- *     parameters:
- *       - in: path
- *         name: category_id
- *         required: true
- *         schema:
- *           type: string
- *         description: The category ID (use "null" to get unclassified items)
- *     responses:
- *       200:
- *         description: List of menu items in the category
- *       404:
- *         description: Category not found
- *       400:
- *         description: Invalid category ID
- */
-const getMenuItemsByCategory = asyncHandler(async (req, res) => {
-  const { category_id } = req.params;
-
-  // Validate category_id format
-  if (!category_id) {
-    res.status(400);
-    throw new Error('Category ID is required');
-  }
-
-  let queryCondition;
-
-  // Handle case where category_id is "null" (unclassified items)
-  if (category_id.toLowerCase() === 'null') {
-    queryCondition = { category_id: null };
-  } else {
-    // Validate if category_id is a valid ObjectId
-    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(category_id);
-    if (!isValidObjectId) {
-      res.status(400);
-      throw new Error('Invalid category ID format');
-    }
-
-    // Check if category exists
-    const category = await Category.findById(category_id);
-    if (!category) {
-      res.status(404);
-      throw new Error('Category not found');
-    }
-
-    queryCondition = { category_id };
-  }
-
-  // Find menu items by category_id (or null)
-  const menuItems = await MenuItem.find(queryCondition)
-    .populate('category_id', 'name')
-    .populate('restaurant_id', 'name');
-
-  res.status(200).json({
-    success: true,
-    count: menuItems.length,
-    data: menuItems,
   });
 });
 
@@ -275,6 +389,9 @@ const getMenuItemsByCategory = asyncHandler(async (req, res) => {
  *               category_id:
  *                 type: string
  *                 description: Optional, leave empty for unclassified
+ *               status:
+ *                 type: string
+ *                 enum: ['visible', 'hidden']
  *     responses:
  *       200:
  *         description: Menu item updated
@@ -284,7 +401,7 @@ const getMenuItemsByCategory = asyncHandler(async (req, res) => {
  *         description: Admin access required
  */
 const updateMenuItem = asyncHandler(async (req, res) => {
-  const { name, price, description, category_id } = req.body;
+  const { name, price, description, category_id, status } = req.body;
 
   const menuItem = await MenuItem.findById(req.params.id);
   if (!menuItem) {
@@ -292,13 +409,11 @@ const updateMenuItem = asyncHandler(async (req, res) => {
     throw new Error('Menu item not found');
   }
 
-  // Check if menu item belongs to the user's restaurant
   if (menuItem.restaurant_id.toString() !== req.user.restaurant_id.toString()) {
     res.status(403);
     throw new Error('Menu item does not belong to your restaurant');
   }
 
-  // Validate category_id if provided
   if (category_id) {
     const category = await Category.findById(category_id);
     if (!category) {
@@ -314,16 +429,13 @@ const updateMenuItem = asyncHandler(async (req, res) => {
     menuItem.category_id = null;
   }
 
-  // Handle image upload to Cloudinary
   if (req.file) {
     try {
-      // Delete old image from Cloudinary if exists
       if (menuItem.image_url) {
         const publicId = menuItem.image_url.split('/').pop().split('.')[0];
         await cloudinary.uploader.destroy(`menu-items/${publicId}`);
       }
 
-      // Upload new image
       const publicId = `menu-item-${req.user.restaurant_id}-${Date.now()}`;
       const result = await cloudinary.uploader.upload(req.file.path, {
         folder: 'menu-items',
@@ -352,16 +464,15 @@ const updateMenuItem = asyncHandler(async (req, res) => {
     }
   }
 
-  // Update fields
   if (name) menuItem.name = name;
   if (price) menuItem.price = price;
   if (description !== undefined) menuItem.description = description;
+  if (status) menuItem.status = status;
 
   await menuItem.save();
 
-  // Populate category and restaurant for response
   const populatedMenuItem = await MenuItem.findById(menuItem._id)
-    .populate('category_id', 'name')
+    .populate('category_id', 'name status')
     .populate('restaurant_id', 'name');
 
   res.status(200).json({
@@ -399,13 +510,11 @@ const deleteMenuItem = asyncHandler(async (req, res) => {
     throw new Error('Menu item not found');
   }
 
-  // Check if menu item belongs to the user's restaurant
   if (menuItem.restaurant_id.toString() !== req.user.restaurant_id.toString()) {
     res.status(403);
     throw new Error('Menu item does not belong to your restaurant');
   }
 
-  // Delete image from Cloudinary if exists
   if (menuItem.image_url) {
     const publicId = menuItem.image_url.split('/').pop().split('.')[0];
     await cloudinary.uploader.destroy(`menu-items/${publicId}`);

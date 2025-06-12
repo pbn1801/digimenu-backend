@@ -37,6 +37,11 @@ const menuItemSchema = new mongoose.Schema(
       default: 0,
       min: [0, 'Order count cannot be negative'],
     },
+    status: {
+      type: String,
+      enum: ['visible', 'hidden'],
+      default: 'visible',
+    },
   },
   { timestamps: true }
 );

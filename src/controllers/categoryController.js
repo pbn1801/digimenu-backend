@@ -1,6 +1,6 @@
 import asyncHandler from 'express-async-handler';
 import Category from '../models/Category.js';
-import MenuItem from '../models/MenuItem.js'; // Thêm import MenuItem
+import MenuItem from '../models/MenuItem.js';
 
 /**
  * @swagger
@@ -25,34 +25,20 @@ import MenuItem from '../models/MenuItem.js'; // Thêm import MenuItem
  *               description:
  *                 type: string
  *                 description: Description of the category
+ *               status:
+ *                 type: string
+ *                 enum: ['visible', 'hidden']
+ *                 default: 'visible'
  *     responses:
  *       201:
  *         description: Category created successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     _id:
- *                       type: string
- *                     name:
- *                       type: string
- *                     description:
- *                       type: string
- *                     restaurant_id:
- *                       type: string
  *       400:
  *         description: Bad request
  *       401:
  *         description: Not authorized
  */
 const createCategory = asyncHandler(async (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, status } = req.body;
   const restaurant_id = req.user.restaurant_id;
 
   if (!name) {
@@ -75,6 +61,7 @@ const createCategory = asyncHandler(async (req, res) => {
     name,
     description,
     restaurant_id,
+    status: status || 'visible',
   });
 
   res.status(201).json({
@@ -119,9 +106,14 @@ const createCategory = asyncHandler(async (req, res) => {
  *                             type: string
  *                           name:
  *                             type: string
+ *                       status:
+ *                         type: string
+ *                         enum: ['visible', 'hidden']
  */
 const getCategories = asyncHandler(async (req, res) => {
-  const categories = await Category.find({}).populate('restaurant_id', 'name');
+  const categories = await Category.find()
+    .populate('restaurant_id', 'name');
+
   res.status(200).json({
     success: true,
     count: categories.length,
@@ -168,14 +160,15 @@ const getCategories = asyncHandler(async (req, res) => {
  *                           type: string
  *                         name:
  *                           type: string
+ *                     status:
+ *                       type: string
+ *                       enum: ['visible', 'hidden']
  *       404:
  *         description: Category not found
  */
 const getCategoryById = asyncHandler(async (req, res) => {
-  const category = await Category.findById(req.params.id).populate(
-    'restaurant_id',
-    'name'
-  );
+  const category = await Category.findById(req.params.id)
+    .populate('restaurant_id', 'name');
 
   if (!category) {
     res.status(404);
@@ -214,34 +207,15 @@ const getCategoryById = asyncHandler(async (req, res) => {
  *                 type: string
  *               description:
  *                 type: string
+ *               status:
+ *                 type: string
+ *                 enum: ['visible', 'hidden']
  *     responses:
  *       200:
  *         description: Category updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     _id:
- *                       type: string
- *                     name:
- *                       type: string
- *                     description:
- *                       type: string
- *                     restaurant_id:
- *                       type: string
- *       404:
- *         description: Category not found
- *       401:
- *         description: Not authorized
  */
 const updateCategory = asyncHandler(async (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, status } = req.body;
   const restaurant_id = req.user.restaurant_id;
 
   const category = await Category.findById(req.params.id);
@@ -258,6 +232,7 @@ const updateCategory = asyncHandler(async (req, res) => {
 
   category.name = name || category.name;
   category.description = description || category.description;
+  if (status) category.status = status;
 
   const updatedCategory = await category.save();
 
@@ -285,19 +260,6 @@ const updateCategory = asyncHandler(async (req, res) => {
  *     responses:
  *       200:
  *         description: Category deleted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *       404:
- *         description: Category not found
- *       401:
- *         description: Not authorized
  */
 const deleteCategory = asyncHandler(async (req, res) => {
   const restaurant_id = req.user.restaurant_id;
@@ -314,7 +276,6 @@ const deleteCategory = asyncHandler(async (req, res) => {
     throw new Error('Not authorized to delete this category');
   }
 
-  // Cập nhật tất cả menuItem thuộc category này thành category_id: null
   await MenuItem.updateMany(
     { category_id: category._id },
     { $set: { category_id: null } }
