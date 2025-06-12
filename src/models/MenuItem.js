@@ -43,5 +43,7 @@ const menuItemSchema = new mongoose.Schema(
 
 // Đảm bảo name unique trong phạm vi restaurant_id
 menuItemSchema.index({ restaurant_id: 1, name: 1 }, { unique: true });
+// Thêm index cho order_count để sắp xếp top phổ biến
+menuItemSchema.index({ order_count: -1 });
 
 export default mongoose.model('MenuItem', menuItemSchema);

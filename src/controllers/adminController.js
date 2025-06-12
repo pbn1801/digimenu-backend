@@ -1,6 +1,7 @@
 import asyncHandler from 'express-async-handler';
 import User from '../models/User.js';
 import OrderGroup from '../models/OrderGroup.js';
+import MenuItem from '../models/MenuItem.js';
 
 /**
  * @swagger
@@ -109,4 +110,57 @@ const getRevenue = asyncHandler(async (req, res) => {
   });
 });
 
-export { getAllUsers, getRevenue };
+/**
+ * @swagger
+ * /admin/popular-items:
+ *   get:
+ *     summary: Get popular menu items for admin (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 5
+ *         description: Number of popular items to return
+ *     responses:
+ *       200:
+ *         description: List of popular items
+ *       400:
+ *         description: Invalid limit value
+ *       403:
+ *         description: Admin access required
+ */
+const getPopularItems = asyncHandler(async (req, res) => {
+  // Xác thực admin
+  if (req.user.role !== 'admin') {
+    res.status(403);
+    throw new Error('Admin access required');
+  }
+
+  // Lấy tham số từ query
+  const { limit } = req.query;
+  const parsedLimit = parseInt(limit, 10);
+
+  // Kiểm tra limit hợp lệ
+  if (isNaN(parsedLimit) || parsedLimit <= 0) {
+    res.status(400);
+    throw new Error('Invalid limit value: must be a positive number');
+  }
+
+  // Query menu items
+  const popularItems = await MenuItem.find({ restaurant_id: req.user.restaurant_id })
+    .select('name order_count price image_url') // Thêm image_url vào select
+    .sort({ order_count: -1 })
+    .limit(parsedLimit);
+
+  res.status(200).json({
+    success: true,
+    count: popularItems.length,
+    data: popularItems,
+  });
+});
+
+export { getAllUsers, getRevenue, getPopularItems };

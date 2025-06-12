@@ -3,6 +3,7 @@ import OrderGroup from '../models/OrderGroup.js';
 import Table from '../models/Table.js';
 import { createInvoice } from './invoiceController.js';
 import Invoice from '../models/Invoice.js'; // Thêm để populate
+import MenuItem from '../models/MenuItem.js';
 
 /**
  * @swagger
@@ -151,6 +152,27 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
           select: 'restaurant_id name price description image_url category_id order_count',
         },
       });
+
+    // Cập nhật order_count cho các MenuItem
+    const itemCounts = {};
+    for (const order of populatedOrderGroup.orders) {
+      for (const item of order.items) {
+        const itemId = item.item_id._id.toString();
+        itemCounts[itemId] = (itemCounts[itemId] || 0) + (item.quantity || 1);
+      }
+    }
+
+    const bulkUpdates = Object.entries(itemCounts).map(([itemId, count]) => ({
+      updateOne: {
+        filter: { _id: itemId },
+        update: { $inc: { order_count: count } },
+      },
+    }));
+
+    if (bulkUpdates.length > 0) {
+      await MenuItem.bulkWrite(bulkUpdates);
+    }
+
     io.emit('order_group_updated', populatedOrderGroup);
 
     let invoice;
