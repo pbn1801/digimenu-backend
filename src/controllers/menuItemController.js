@@ -350,7 +350,7 @@ const getMenuItemsGroupedByCategory = asyncHandler(async (req, res) => {
   // Chuyển đổi dữ liệu để phù hợp với cấu trúc mong muốn
   const responseData = menuItems.map((category) => ({
     id: category._id || 'uncategorized',
-    name: category.name || 'Chưa phân loại',
+    name: category.name || 'Món khác',
     products: category.products,
   }));
 
