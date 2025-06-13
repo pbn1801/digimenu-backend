@@ -334,4 +334,62 @@ const getTableOrders = asyncHandler(async (req, res) => {
   });
 });
 
-export { addTable, getTables, getTableById, updateTable, deleteTable, getTableOrders };
+/**
+ * @swagger
+ * /tables/name/{name}:
+ *   get:
+ *     summary: Get a table by name (Public)
+ *     tags: [Tables]
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         schema:
+ *           type: number
+ *         description: Table number (e.g., 1, 2, 3)
+ *     responses:
+ *       200:
+ *         description: Table details
+ *       404:
+ *         description: Table not found
+ */
+const getTableByName = asyncHandler(async (req, res) => {
+  const { name } = req.params;
+
+  // Validate that name is an integer
+  if (!Number.isInteger(Number(name))) {
+    res.status(400);
+    throw new Error('Name must be an integer');
+  }
+
+  // Find table by name and populate restaurant_id
+  const table = await Table.findOne({ name: Number(name) })
+    .populate('restaurant_id', 'name slug')
+    .populate('current_order_group', 'payment_status total_amount'); // Populate order group if needed
+
+  if (!table) {
+    res.status(404);
+    throw new Error('Table not found');
+  }
+
+  res.status(200).json({
+    success: true,
+    data: {
+      _id: table._id,
+      restaurant_id: {
+        id: table.restaurant_id._id,
+        name: table.restaurant_id.name,
+        slug: table.restaurant_id.slug,
+      },
+      name: table.name,
+      table_url: table.table_url,
+      encode: table.encode,
+      status: table.status,
+      current_order_group: table.current_order_group,
+      createdAt: table.createdAt,
+      updatedAt: table.updatedAt,
+    },
+  });
+});
+
+export { addTable, getTables, getTableById, updateTable, deleteTable, getTableOrders, getTableByName };

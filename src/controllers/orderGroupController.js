@@ -264,4 +264,97 @@ const getOrderGroupById = asyncHandler(async (req, res) => {
   });
 });
 
-export { getOrderGroups, updateOrderGroup, getOrderGroupById };
+/**
+ * @swagger
+ * /order-groups/table/{name}:
+ *   get:
+ *     summary: Get the current unpaid order group for a table by name (Staff or Admin only)
+ *     tags: [OrderGroups]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         schema:
+ *           type: number
+ *         description: Table number (e.g., 1, 2, 3)
+ *     responses:
+ *       200:
+ *         description: Unpaid order group details
+ *       404:
+ *         description: Table or unpaid order group not found
+ *       403:
+ *         description: Staff or Admin access required
+ */
+const getOrderGroupByTableName = asyncHandler(async (req, res) => {
+  const { name } = req.params;
+
+  // Validate that name is an integer
+  if (!Number.isInteger(Number(name))) {
+    res.status(400);
+    throw new Error('Name must be an integer');
+  }
+
+  // Find table by name
+  const table = await Table.findOne({ name: Number(name) })
+    .populate('restaurant_id', 'name slug');
+
+  if (!table) {
+    res.status(404);
+    throw new Error('Table not found');
+  }
+
+  // Check if table belongs to the user's restaurant
+  if (table.restaurant_id._id.toString() !== req.user.restaurant_id.toString()) {
+    res.status(403);
+    throw new Error('Table does not belong to your restaurant');
+  }
+
+  // Find the current OrderGroup if it exists and is not paid
+  let orderGroup = null;
+  if (table.current_order_group) {
+    orderGroup = await OrderGroup.findOne({
+      _id: table.current_order_group,
+      payment_status: 'Chưa thanh toán',
+      restaurant_id: req.user.restaurant_id,
+    }).populate({
+      path: 'orders',
+      populate: {
+        path: 'items.item_id',
+        select: 'name price description image_url category_id order_count',
+      },
+    });
+  }
+
+  if (!orderGroup) {
+    return res.status(200).json({
+      success: true,
+      message: 'No unpaid order group found for this table',
+      data: null,
+    });
+  }
+
+  // Sort orders by createdAt (ascending)
+  const orders = orderGroup.orders.sort((a, b) => a.createdAt - b.createdAt);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      table: {
+        _id: table._id,
+        name: table.name,
+        status: table.status,
+      },
+      order_group: {
+        _id: orderGroup._id,
+        total_amount: orderGroup.total_amount,
+        payment_status: orderGroup.payment_status,
+        payment_method: orderGroup.payment_method,
+        orders: orders,
+      },
+    },
+  });
+});
+
+export { getOrderGroups, updateOrderGroup, getOrderGroupById, getOrderGroupByTableName };
