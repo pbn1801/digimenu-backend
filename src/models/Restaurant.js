@@ -43,6 +43,11 @@ const restaurantSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    google_map_link: {
+      type: String,
+      trim: true,
+      default: null,
+    },
   },
   { timestamps: true }
 );

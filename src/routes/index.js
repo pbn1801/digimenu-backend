@@ -7,6 +7,7 @@ import orderRoutes from './orderRoutes.js';
 import orderGroupRoutes from './orderGroupRoutes.js';
 import invoiceRoutes from './invoiceRoutes.js';
 import adminRoutes from './adminRoutes.js';
+import restaurantRoutes from './restaurantRoutes.js';
 
 const router = express.Router();
 
@@ -18,5 +19,6 @@ router.use('/orders', orderRoutes);
 router.use('/order-groups', orderGroupRoutes);
 router.use('/invoices', invoiceRoutes);
 router.use('/admin', adminRoutes);
+router.use('/restaurants', restaurantRoutes);
 
 export default router;
