@@ -5,7 +5,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
 import routes from './routes/index.js';
-import { errorHandler } from './middleware/errorMiddleware.js';
+import errorHandler from './middleware/errorMiddleware.js';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './swagger.js';
 import { createServer } from 'http';
@@ -31,7 +31,9 @@ const io = new Server(httpServer, {
 connectDB();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*',
+}));
 app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json());
