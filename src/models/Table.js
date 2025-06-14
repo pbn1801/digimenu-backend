@@ -31,7 +31,11 @@ const tableSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Table URL is required'],
       validate: {
-        validator: value => validator.isURL(value),
+        validator: value => validator.isURL(value, {
+          protocols: ['http', 'https'],
+          require_tld: false, // Cho phép localhost
+          allow_local: true,  // Cho phép địa chỉ local
+        }),
         message: 'Invalid URL format',
       },
     },
@@ -74,7 +78,6 @@ tableSchema.pre('findOneAndDelete', async function (next) {
 
 // Đảm bảo name unique trong phạm vi restaurant_id
 tableSchema.index({ restaurant_id: 1, name: 1 }, { unique: true });
-// Thêm index cho table_url để tăng tốc độ truy vấn nếu dùng để tìm bàn
 tableSchema.index({ table_url: 1 });
 
 export default mongoose.model('Table', tableSchema);

@@ -76,6 +76,7 @@ const addOrder = asyncHandler(async (req, res) => {
       res.status(400);
       throw new Error(`Price of menu item ${item.item_id} must be a positive number`);
     }
+
     // Tính tổng tiền cho item này
     const itemTotal = quantity * price;
     total_cost += itemTotal;
@@ -109,7 +110,7 @@ const addOrder = asyncHandler(async (req, res) => {
     items: updatedItems,
     total_cost,
     notes: notes || '',
-    status: 'Đang chờ', // Default status as per schema
+    status: 'Đang chờ',
   });
 
   // Update OrderGroup
@@ -117,12 +118,36 @@ const addOrder = asyncHandler(async (req, res) => {
   orderGroup.total_cost += total_cost;
   await orderGroup.save();
 
-  // Emit WebSocket event
+  // WebSocket event
   const io = req.app.get('io');
+  if (!io) {
+    console.error('Socket.IO not initialized');
+    res.status(500);
+    throw new Error('Internal server error');
+  }
   const populatedOrder = await Order.findById(order._id)
     .populate('table_id', 'name table_number')
     .populate('items.item_id', 'restaurant_id name price description image_url category_id order_count');
-  io.emit('new_pending_order', populatedOrder);
+  const roomName = `room_table_${table_id}`;
+  const timestamp = new Date().toISOString();
+
+  console.log(`Emitting 'new_order' to room: ${roomName}`);
+  io.to(roomName).emit('new_order', {
+    type: 'new_order',
+    target: 'staff',
+    message: `Có đơn mới tại bàn số ${table.name || table_id}`,
+    data: populatedOrder,
+    timestamp: timestamp,
+  });
+
+  console.log(`Emitting 'customer_notification' to room: ${roomName}`);
+  io.to(roomName).emit('customer_notification', {
+    type: 'order_submitted',
+    target: 'customer',
+    message: 'Đơn đã được gửi và đang chờ xử lý',
+    data: populatedOrder,
+    timestamp: timestamp,
+  });
 
   res.status(201).json({
     success: true,
@@ -151,7 +176,7 @@ const getPendingOrders = asyncHandler(async (req, res) => {
   })
     .populate('table_id', 'name table_number')
     .populate('items.item_id', 'restaurant_id name price description image_url category_id order_count')
-    .sort({ createdAt: -1 }); // Newest first
+    .sort({ createdAt: -1 });
 
   res.status(200).json({
     success: true,
@@ -193,16 +218,23 @@ const approveOrder = asyncHandler(async (req, res) => {
     throw new Error('Order not found');
   }
 
-  // Update order status to "Đã nhận"
   order.status = 'Đã nhận';
   await order.save();
 
-  // Emit WebSocket event
   const io = req.app.get('io');
   const populatedOrder = await Order.findById(order._id)
     .populate('table_id', 'name table_number')
-    .populate('items.item_id', 'restaurant_id name price description image_url category_id order_count');
-  io.emit('order_updated', populatedOrder);
+    .populate('items.item_id', 'name price');
+  const roomName = `room_table_${order.table_id}`;
+  const timestamp = new Date().toISOString();
+
+  io.to(roomName).emit('customer_notification', {
+    type: 'order_approved',
+    target: 'customer',
+    message: 'Đơn của bạn đã được duyệt',
+    data: populatedOrder,
+    timestamp: timestamp,
+  });
 
   res.status(200).json({
     success: true,
@@ -230,7 +262,7 @@ const getAllOrders = asyncHandler(async (req, res) => {
   })
     .populate('table_id', 'name table_number')
     .populate('items.item_id', 'restaurant_id name price description image_url category_id order_count')
-    .sort({ createdAt: -1 }); // Newest first
+    .sort({ createdAt: -1 });
 
   res.status(200).json({
     success: true,

@@ -29,6 +29,11 @@ const invoiceSchema = new mongoose.Schema({
     required: true,
   },
   restaurant_info: {
+    restaurant_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Restaurant',
+      required: true,
+    },
     name: {
       type: String,
       required: true,

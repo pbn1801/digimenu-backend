@@ -16,12 +16,7 @@ const categorySchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Restaurant',
       required: [true, 'Restaurant ID is required'],
-    },
-    status: {
-      type: String,
-      enum: ['visible', 'hidden'],
-      default: 'visible',
-    },
+    }
   },
   { timestamps: true }
 );

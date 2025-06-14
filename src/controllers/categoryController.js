@@ -25,10 +25,6 @@ import MenuItem from '../models/MenuItem.js';
  *               description:
  *                 type: string
  *                 description: Description of the category
- *               status:
- *                 type: string
- *                 enum: ['visible', 'hidden']
- *                 default: 'visible'
  *     responses:
  *       201:
  *         description: Category created successfully
@@ -38,7 +34,7 @@ import MenuItem from '../models/MenuItem.js';
  *         description: Not authorized
  */
 const createCategory = asyncHandler(async (req, res) => {
-  const { name, description, status } = req.body;
+  const { name, description } = req.body;
   const restaurant_id = req.user.restaurant_id;
 
   if (!name) {
@@ -60,8 +56,7 @@ const createCategory = asyncHandler(async (req, res) => {
   const category = await Category.create({
     name,
     description,
-    restaurant_id,
-    status: status || 'visible',
+    restaurant_id
   });
 
   res.status(201).json({
@@ -106,9 +101,6 @@ const createCategory = asyncHandler(async (req, res) => {
  *                             type: string
  *                           name:
  *                             type: string
- *                       status:
- *                         type: string
- *                         enum: ['visible', 'hidden']
  */
 const getCategories = asyncHandler(async (req, res) => {
   const categories = await Category.find()
@@ -160,9 +152,6 @@ const getCategories = asyncHandler(async (req, res) => {
  *                           type: string
  *                         name:
  *                           type: string
- *                     status:
- *                       type: string
- *                       enum: ['visible', 'hidden']
  *       404:
  *         description: Category not found
  */
@@ -207,15 +196,12 @@ const getCategoryById = asyncHandler(async (req, res) => {
  *                 type: string
  *               description:
  *                 type: string
- *               status:
- *                 type: string
- *                 enum: ['visible', 'hidden']
  *     responses:
  *       200:
  *         description: Category updated successfully
  */
 const updateCategory = asyncHandler(async (req, res) => {
-  const { name, description, status } = req.body;
+  const { name, description } = req.body;
   const restaurant_id = req.user.restaurant_id;
 
   const category = await Category.findById(req.params.id);
@@ -232,7 +218,6 @@ const updateCategory = asyncHandler(async (req, res) => {
 
   category.name = name || category.name;
   category.description = description || category.description;
-  if (status) category.status = status;
 
   const updatedCategory = await category.save();
 

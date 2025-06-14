@@ -14,16 +14,16 @@ import { Server } from 'socket.io';
 // Load biến môi trường từ .env
 dotenv.config();
 
-console.log('JWT_SECRET loaded:', process.env.JWT_SECRET); // Thêm log để kiểm tra
+console.log('JWT_SECRET loaded:', process.env.JWT_SECRET);
 
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL, // Điều chỉnh theo domain của frontend trong production
-    methods: ['GET', 'POST', 'PUT'], // Mở rộng để hỗ trợ PUT cho approveOrder và updateOrderGroup
-    credentials: true, // Cho phép gửi cookie nếu cần
-    allowedHeaders: ['Content-Type', 'Authorization'], // Thêm các header cần thiết
+    origin: process.env.FRONTEND_URL || '*', // Sử dụng * để test local, đổi về FRONTEND_URL khi deploy
+    methods: ['GET', 'POST', 'PUT'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
   },
 });
 
@@ -31,10 +31,14 @@ const io = new Server(httpServer, {
 connectDB();
 
 // Middleware
-app.use(cors()); // Cho phép gọi API từ frontend
-app.use(helmet()); // Bảo mật headers
-app.use(morgan('dev')); // Log request
-app.use(express.json()); // Parse JSON body
+app.use(cors());
+app.use(helmet());
+app.use(morgan('dev'));
+app.use(express.json());
+app.use((req, res, next) => {
+  console.log(`Received ${req.method} request at ${req.path}`);
+  next();
+});
 
 // Lưu io vào app để sử dụng trong controllers
 app.set('io', io);
@@ -43,15 +47,21 @@ app.set('io', io);
 io.on('connection', (socket) => {
   console.log('A client connected:', socket.id);
 
+  socket.on('join_room', (room) => {
+    socket.join(room);
+    console.log(`Client ${socket.id} joined room: ${room}`);
+  });
+
+  socket.on('join_all_rooms', (rooms) => {
+    rooms.forEach(room => {
+      socket.join(room);
+      console.log(`Client ${socket.id} joined room: ${room}`);
+    });
+  });
+
   socket.on('disconnect', () => {
     console.log('A client disconnected:', socket.id);
   });
-
-  // Frontend có thể lắng nghe các sự kiện sau:
-  // - 'new_pending_order': Phát khi có order mới được thêm (từ addOrder).
-  // - 'order_updated': Phát khi order được cập nhật (từ approveOrder).
-  // - 'order_group_updated': Phát khi order group được cập nhật (từ updateOrderGroup).
-  // Frontend cần implement logic để xử lý dữ liệu nhận được từ các sự kiện này.
 });
 
 // Sử dụng router tổng hợp

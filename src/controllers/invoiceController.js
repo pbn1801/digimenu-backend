@@ -11,7 +11,7 @@ const createInvoice = asyncHandler(async (req, orderGroup) => {
   }
 
   // Lấy thông tin nhà hàng từ restaurant_id
-  const restaurant = await Restaurant.findById(orderGroup.restaurant_id).select('name address');
+  const restaurant = await Restaurant.findById(orderGroup.restaurant_id).select('name address _id');
   if (!restaurant) {
     throw new Error('Restaurant not found for this OrderGroup');
   }
@@ -29,6 +29,7 @@ const createInvoice = asyncHandler(async (req, orderGroup) => {
     payment_method: orderGroup.payment_method || 'Không xác định',
     payment_date: orderGroup.payment_date || new Date(),
     restaurant_info: {
+      restaurant_id: restaurant._id,
       name: restaurant.name,
       address: restaurant.address,
     },

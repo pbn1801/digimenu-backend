@@ -4,6 +4,7 @@ import Table from '../models/Table.js';
 import { createInvoice } from './invoiceController.js';
 import Invoice from '../models/Invoice.js'; // Thêm để populate
 import MenuItem from '../models/MenuItem.js';
+import api from '../utils/api.js'; // Import module API
 
 /**
  * @swagger
@@ -357,4 +358,65 @@ const getOrderGroupByTableName = asyncHandler(async (req, res) => {
   });
 });
 
-export { getOrderGroups, updateOrderGroup, getOrderGroupById, getOrderGroupByTableName };
+/**
+ * @swagger
+ * /order-groups/{id}/create-qr:
+ *   post:
+ *     summary: Create QR code for an order group payment (Staff or Admin only)
+ *     tags: [OrderGroups]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: QR code URL created successfully
+ *       404:
+ *         description: Order group not found
+ *       403:
+ *         description: Staff or Admin access required
+ */
+const createQrForOrderGroup = asyncHandler(async (req, res) => {
+  const io = req.app.get('io');
+
+  const orderGroup = await OrderGroup.findOne({
+    _id: req.params.id,
+    restaurant_id: req.user.restaurant_id,
+  });
+
+  if (!orderGroup) {
+    io.emit('error_notification', {
+      error_type: 'OrderGroupNotFound',
+      message: 'Order group not found',
+      related_id: req.params.id,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(404);
+    throw new Error('Order group not found');
+  }
+
+  if (orderGroup.payment_status === 'Đã thanh toán') {
+    io.emit('error_notification', {
+      error_type: 'PaymentAlreadyProcessed',
+      message: 'Order group already paid',
+      related_id: req.params.id,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(400);
+    throw new Error('Order group already paid');
+  }
+
+  // Tạo URL QR động với VA ảo và total_cost
+  const qr_code_url = `https://qr.sepay.vn/img?acc=96247PBN18&bank=BIDV&amount=${orderGroup.total_cost}&des=Thanh%20toan%20don%20${orderGroup._id.toString()}`;
+
+  res.status(200).json({
+    success: true,
+    data: { qr_code_url },
+  });
+});
+
+export { getOrderGroups, updateOrderGroup, getOrderGroupById, getOrderGroupByTableName, createQrForOrderGroup };
