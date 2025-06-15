@@ -22,7 +22,6 @@ const processPaymentSuccess = async (orderGroup, io, req) => {
       },
     });
 
-  // Cập nhật Table status
   const table = await Table.findById(orderGroup.table_id);
   if (table) {
     const previousStatus = table.status;
@@ -33,14 +32,13 @@ const processPaymentSuccess = async (orderGroup, io, req) => {
     io.emit('table_status_updated', {
       table_id: table._id,
       name: table.name,
-      table_number: table.name,
+      table_number: table.table_number,
       status: table.status,
       previous_status: previousStatus,
       timestamp: new Date().toISOString(),
     });
   }
 
-  // Cập nhật order_count cho MenuItem
   const itemCounts = {};
   for (const order of populatedOrderGroup.orders) {
     for (const item of order.items) {
@@ -60,15 +58,12 @@ const processPaymentSuccess = async (orderGroup, io, req) => {
     await MenuItem.bulkWrite(bulkUpdates);
   }
 
-  io.emit('order_group_updated', populatedOrderGroup);
-
-  // Tạo hóa đơn
   let invoice;
   if (orderGroup.payment_status === 'Đã thanh toán') {
     try {
       invoice = await createInvoice(req, orderGroup);
     } catch (invoiceError) {
-      io.emit('error_notification', {
+      io.to('staff_room').emit('error_notification', {
         error_type: 'InvoiceCreationFailed',
         message: invoiceError.message || 'Failed to create invoice',
         related_id: orderGroup._id.toString(),
@@ -84,7 +79,7 @@ const processPaymentSuccess = async (orderGroup, io, req) => {
       _id: populatedInvoice._id,
       invoice_number: populatedInvoice.invoice_number,
       table_id: populatedInvoice.table_id,
-      total_cost: populatedInvoice.total_cost, // Đảm bảo dùng total_cost
+      total_cost: populatedInvoice.total_cost,
       payment_date: populatedInvoice.payment_date,
     });
   }
@@ -473,26 +468,22 @@ const webhookPayment = asyncHandler(async (req, res) => {
   const io = req.app.get('io');
   const { id, transferAmount, transactionDate, accountNumber, transferType, content } = req.body;
 
-  // Log payload để debug
   console.log('Webhook payload received:', { id, transferAmount, transactionDate, accountNumber, transferType, content });
 
-  // Kiểm tra payload cơ bản
   if (!id || !transferAmount || !transactionDate || !accountNumber || transferType !== 'in') {
     res.status(400);
     throw new Error('Invalid webhook payload');
   }
 
-  // Kiểm tra accountNumber với biến môi trường
   const validAccountNumber = process.env.VA_ACCOUNT_NUMBER || '4711738273';
   if (accountNumber !== validAccountNumber) {
     res.status(400);
     throw new Error('Invalid account number');
   }
 
-  // Trích xuất orderGroup._id từ content
   const orderGroupIdMatch = content.match(/Thanh\s*toan\s*don\s*([0-9a-fA-F]{24})/);
   if (!orderGroupIdMatch) {
-    io.emit('error_notification', {
+    io.to('staff_room').emit('error_notification', {
       error_type: 'OrderGroupIdNotFound',
       message: 'No order group ID found in transaction content',
       related_id: id.toString(),
@@ -503,15 +494,14 @@ const webhookPayment = asyncHandler(async (req, res) => {
   }
   const orderGroupId = orderGroupIdMatch[1];
 
-  // Tìm OrderGroup dựa trên _id
   const orderGroup = await OrderGroup.findOne({
     _id: orderGroupId,
     payment_status: 'Chưa thanh toán',
-    isPaymentProcessing: true, // Chỉ xử lý khi đang trong quá trình QR
-  });
+    isPaymentProcessing: true,
+  }).populate('table_id', 'table_number');
 
   if (!orderGroup) {
-    io.emit('error_notification', {
+    io.to('staff_room').emit('error_notification', {
       error_type: 'OrderGroupNotFound',
       message: 'No matching unpaid order group found or not in processing',
       related_id: orderGroupId,
@@ -521,9 +511,8 @@ const webhookPayment = asyncHandler(async (req, res) => {
     throw new Error('No matching unpaid order group found or not in processing');
   }
 
-  // Kiểm tra transferAmount khớp total_cost
-  if (orderGroup.total_cost !== transferAmount) { // Sửa lại từ total_amount thành total_cost
-    io.emit('error_notification', {
+  if (orderGroup.total_cost !== transferAmount) {
+    io.to('staff_room').emit('error_notification', {
       error_type: 'AmountMismatch',
       message: `Transfer amount (${transferAmount}) does not match order total (${orderGroup.total_cost})`,
       related_id: orderGroupId,
@@ -533,15 +522,22 @@ const webhookPayment = asyncHandler(async (req, res) => {
     throw new Error('Transfer amount does not match order total');
   }
 
-  // Cập nhật trạng thái
   orderGroup.payment_method = 'QR';
   orderGroup.payment_status = 'Đã thanh toán';
   orderGroup.payment_date = new Date(transactionDate);
-  orderGroup.isPaymentProcessing = false; // Reset sau khi hoàn tất
+  orderGroup.isPaymentProcessing = false;
   await orderGroup.save();
 
-  // Gọi hàm chung xử lý thành công
   await processPaymentSuccess(orderGroup, io, req);
+
+  const tableNumber = orderGroup.table_id ? orderGroup.table_id.table_number : 'Unknown';
+  io.to('staff_room').emit('payment_success', {
+    orderGroupId,
+    tableNumber,
+    amount: transferAmount,
+    message: `Đơn hàng đã được thanh toán thành công với ${transferAmount} VND.`
+  });
+  console.log(`Emitted payment_success event to staff_room for orderGroupId: ${orderGroupId} and tableNumber: ${tableNumber}`);
 
   res.status(200).json({ success: true });
 });

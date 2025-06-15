@@ -49,6 +49,10 @@ app.set('io', io);
 io.on('connection', (socket) => {
   console.log('A client connected:', socket.id);
 
+  // Join staff_room trực tiếp khi kết nối
+  socket.join('staff_room');
+  console.log(`Client ${socket.id} joined staff_room`);
+
   socket.on('join_room', (room) => {
     socket.join(room);
     console.log(`Client ${socket.id} joined room: ${room}`);
