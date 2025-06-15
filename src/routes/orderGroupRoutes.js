@@ -4,7 +4,7 @@ import {
   updateOrderGroup,
   getOrderGroupById,
   getOrderGroupByTableName,
-  createQrForOrderGroup, // Thêm hàm mới
+  createQrForOrderGroup,
 } from '../controllers/orderGroupController.js';
 import { protect, staffOrAdmin } from '../middleware/authMiddleware.js';
 

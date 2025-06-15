@@ -5,6 +5,90 @@ import { createInvoice } from './invoiceController.js';
 import Invoice from '../models/Invoice.js'; // Thêm để populate
 import MenuItem from '../models/MenuItem.js';
 import api from '../utils/api.js'; // Import module API
+import dotenv from 'dotenv';
+dotenv.config();
+
+/**
+ * Hàm chung xử lý thành công thanh toán
+ */
+const processPaymentSuccess = async (orderGroup, io, req) => {
+  const populatedOrderGroup = await OrderGroup.findById(orderGroup._id)
+    .populate('table_id', 'name table_number')
+    .populate({
+      path: 'orders',
+      populate: {
+        path: 'items.item_id',
+        select: 'restaurant_id name price description image_url category_id order_count',
+      },
+    });
+
+  // Cập nhật Table status
+  const table = await Table.findById(orderGroup.table_id);
+  if (table) {
+    const previousStatus = table.status;
+    table.current_order_group = null;
+    table.status = 'Trống';
+    await table.save();
+
+    io.emit('table_status_updated', {
+      table_id: table._id,
+      name: table.name,
+      table_number: table.name,
+      status: table.status,
+      previous_status: previousStatus,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // Cập nhật order_count cho MenuItem
+  const itemCounts = {};
+  for (const order of populatedOrderGroup.orders) {
+    for (const item of order.items) {
+      const itemId = item.item_id._id.toString();
+      itemCounts[itemId] = (itemCounts[itemId] || 0) + (item.quantity || 1);
+    }
+  }
+
+  const bulkUpdates = Object.entries(itemCounts).map(([itemId, count]) => ({
+    updateOne: {
+      filter: { _id: itemId },
+      update: { $inc: { order_count: count } },
+    },
+  }));
+
+  if (bulkUpdates.length > 0) {
+    await MenuItem.bulkWrite(bulkUpdates);
+  }
+
+  io.emit('order_group_updated', populatedOrderGroup);
+
+  // Tạo hóa đơn
+  let invoice;
+  if (orderGroup.payment_status === 'Đã thanh toán') {
+    try {
+      invoice = await createInvoice(req, orderGroup);
+    } catch (invoiceError) {
+      io.emit('error_notification', {
+        error_type: 'InvoiceCreationFailed',
+        message: invoiceError.message || 'Failed to create invoice',
+        related_id: orderGroup._id.toString(),
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error('Failed to create invoice');
+    }
+  }
+
+  if (invoice) {
+    const populatedInvoice = await Invoice.findById(invoice._id).populate('table_id', 'name table_number');
+    io.emit('invoice_created', {
+      _id: populatedInvoice._id,
+      invoice_number: populatedInvoice.invoice_number,
+      table_id: populatedInvoice.table_id,
+      total_cost: populatedInvoice.total_cost, // Đảm bảo dùng total_cost
+      payment_date: populatedInvoice.payment_date,
+    });
+  }
+};
 
 /**
  * @swagger
@@ -67,7 +151,7 @@ const getOrderGroups = asyncHandler(async (req, res) => {
  * @swagger
  * /order-groups/{id}/pay:
  *   put:
- *     summary: Update an order group payment status (Staff or Admin only)
+ *     summary: Update an order group payment status with cash (Staff or Admin only)
  *     tags: [OrderGroups]
  *     security:
  *       - bearerAuth: []
@@ -86,136 +170,60 @@ const getOrderGroups = asyncHandler(async (req, res) => {
  *             properties:
  *               payment_method:
  *                 type: string
- *                 enum: ['QR', 'Tiền mặt']
+ *                 enum: ['Tiền mặt']
  *     responses:
  *       200:
  *         description: Order group updated
  *       404:
- *         description: Order group not found
+ *         description: Order group not found or being processed
  *       403:
  *         description: Staff or Admin access required
+ *       400:
+ *         description: Invalid payment method
  */
 const updateOrderGroup = asyncHandler(async (req, res) => {
   const io = req.app.get('io');
+  const { payment_method } = req.body;
 
-  try {
-    const { payment_method } = req.body;
+  // Kiểm tra isPaymentProcessing
+  const orderGroup = await OrderGroup.findOne({
+    _id: req.params.id,
+    restaurant_id: req.user.restaurant_id,
+    isPaymentProcessing: false,
+  });
 
-    const orderGroup = await OrderGroup.findOne({
-      _id: req.params.id,
-      restaurant_id: req.user.restaurant_id,
-    });
-
-    if (!orderGroup) {
-      io.emit('error_notification', {
-        error_type: 'OrderGroupNotFound',
-        message: 'Order group not found',
-        related_id: req.params.id,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(404);
-      throw new Error('Order group not found');
-    }
-
-    const oldPaymentStatus = orderGroup.payment_status;
-
-    if (payment_method) {
-      orderGroup.payment_method = payment_method;
-      orderGroup.payment_status = 'Đã thanh toán';
-      orderGroup.payment_date = new Date();
-    }
-
-    await orderGroup.save();
-
-    const table = await Table.findById(orderGroup.table_id);
-    if (table) {
-      const previousStatus = table.status;
-      table.current_order_group = null;
-      table.status = 'Trống';
-      await table.save();
-
-      io.emit('table_status_updated', {
-        table_id: table._id,
-        name: table.name,
-        table_number: table.name,
-        status: table.status,
-        previous_status: previousStatus,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    const populatedOrderGroup = await OrderGroup.findById(orderGroup._id)
-      .populate('table_id', 'name table_number')
-      .populate({
-        path: 'orders',
-        populate: {
-          path: 'items.item_id',
-          select: 'restaurant_id name price description image_url category_id order_count',
-        },
-      });
-
-    // Cập nhật order_count cho các MenuItem
-    const itemCounts = {};
-    for (const order of populatedOrderGroup.orders) {
-      for (const item of order.items) {
-        const itemId = item.item_id._id.toString();
-        itemCounts[itemId] = (itemCounts[itemId] || 0) + (item.quantity || 1);
-      }
-    }
-
-    const bulkUpdates = Object.entries(itemCounts).map(([itemId, count]) => ({
-      updateOne: {
-        filter: { _id: itemId },
-        update: { $inc: { order_count: count } },
-      },
-    }));
-
-    if (bulkUpdates.length > 0) {
-      await MenuItem.bulkWrite(bulkUpdates);
-    }
-
-    io.emit('order_group_updated', populatedOrderGroup);
-
-    let invoice;
-    if (orderGroup.payment_status === 'Đã thanh toán' && oldPaymentStatus !== 'Đã thanh toán') {
-      try {
-        invoice = await createInvoice(req, orderGroup);
-      } catch (invoiceError) {
-        io.emit('error_notification', {
-          error_type: 'InvoiceCreationFailed',
-          message: invoiceError.message || 'Failed to create invoice',
-          related_id: orderGroup._id.toString(),
-          timestamp: new Date().toISOString(),
-        });
-        throw new Error('Failed to create invoice');
-      }
-    }
-
-    if (invoice) {
-      const populatedInvoice = await Invoice.findById(invoice._id)
-        .populate('table_id', 'name table_number');
-      io.emit('invoice_created', {
-        _id: populatedInvoice._id,
-        invoice_number: populatedInvoice.invoice_number,
-        table_id: populatedInvoice.table_id,
-        total_cost: populatedInvoice.total_cost,
-        payment_date: populatedInvoice.payment_date,
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: orderGroup,
-    });
-  } catch (error) {
+  if (!orderGroup) {
     io.emit('error_notification', {
-      error_type: 'GeneralError',
-      message: error.message || 'An unexpected error occurred',
-      related_id: req.params.id || 'N/A',
+      error_type: 'OrderGroupNotFound',
+      message: 'Order group not found or being processed',
+      related_id: req.params.id,
       timestamp: new Date().toISOString(),
     });
-    throw error;
+    res.status(404);
+    throw new Error('Order group not found or being processed');
   }
+
+  // Mặc định payment_method là Tiền mặt nếu không truyền
+  const finalPaymentMethod = payment_method || 'Tiền mặt';
+  if (finalPaymentMethod !== 'Tiền mặt') {
+    res.status(400);
+    throw new Error('Only cash payment is allowed for manual confirmation');
+  }
+
+  // Cập nhật trạng thái
+  const oldPaymentStatus = orderGroup.payment_status;
+  orderGroup.payment_method = finalPaymentMethod;
+  orderGroup.payment_status = 'Đã thanh toán';
+  orderGroup.payment_date = new Date();
+  await orderGroup.save();
+
+  // Gọi hàm chung xử lý thành công
+  await processPaymentSuccess(orderGroup, io, req);
+
+  res.status(200).json({
+    success: true,
+    data: orderGroup,
+  });
 });
 
 /**
@@ -349,7 +357,7 @@ const getOrderGroupByTableName = asyncHandler(async (req, res) => {
       },
       order_group: {
         _id: orderGroup._id,
-        total_amount: orderGroup.total_amount,
+        total_cost: orderGroup.total_cost, // Sửa lại từ total_amount thành total_cost
         payment_status: orderGroup.payment_status,
         payment_method: orderGroup.payment_method,
         orders: orders,
@@ -410,7 +418,11 @@ const createQrForOrderGroup = asyncHandler(async (req, res) => {
     throw new Error('Order group already paid');
   }
 
-  // Tạo URL QR động với VA ảo và total_cost
+  // Đặt isPaymentProcessing khi tạo QR
+  orderGroup.isPaymentProcessing = true;
+  await orderGroup.save();
+
+  // Tạo URL QR với tham chiếu orderGroup._id
   const qr_code_url = `https://qr.sepay.vn/img?acc=96247PBN18&bank=BIDV&amount=${orderGroup.total_cost}&des=Thanh%20toan%20don%20${orderGroup._id.toString()}`;
 
   res.status(200).json({
@@ -419,4 +431,126 @@ const createQrForOrderGroup = asyncHandler(async (req, res) => {
   });
 });
 
-export { getOrderGroups, updateOrderGroup, getOrderGroupById, getOrderGroupByTableName, createQrForOrderGroup };
+/**
+ * @swagger
+ * /webhook/payment:
+ *   post:
+ *     summary: Handle SePay webhook payment notification
+ *     tags: [OrderGroups]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               id:
+ *                 type: integer
+ *                 description: SePay transaction ID
+ *               transferAmount:
+ *                 type: number
+ *                 description: Transaction amount
+ *               transactionDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Transaction date and time
+ *               accountNumber:
+ *                 type: string
+ *                 description: Bank account number
+ *               transferType:
+ *                 type: string
+ *                 description: Transaction type (in/out)
+ *               content:
+ *                 type: string
+ *                 description: Transaction content
+ *     responses:
+ *       200:
+ *         description: Webhook processed successfully
+ *       400:
+ *         description: Invalid payload or mismatch
+ */
+const webhookPayment = asyncHandler(async (req, res) => {
+  const io = req.app.get('io');
+  const { id, transferAmount, transactionDate, accountNumber, transferType, content } = req.body;
+
+  // Log payload để debug
+  console.log('Webhook payload received:', { id, transferAmount, transactionDate, accountNumber, transferType, content });
+
+  // Kiểm tra payload cơ bản
+  if (!id || !transferAmount || !transactionDate || !accountNumber || transferType !== 'in') {
+    res.status(400);
+    throw new Error('Invalid webhook payload');
+  }
+
+  // Kiểm tra accountNumber với biến môi trường
+  const validAccountNumber = process.env.VA_ACCOUNT_NUMBER || '4711738273';
+  if (accountNumber !== validAccountNumber) {
+    res.status(400);
+    throw new Error('Invalid account number');
+  }
+
+  // Trích xuất orderGroup._id từ content
+  const orderGroupIdMatch = content.match(/Thanh\s*toan\s*don\s*([0-9a-fA-F]{24})/);
+  if (!orderGroupIdMatch) {
+    io.emit('error_notification', {
+      error_type: 'OrderGroupIdNotFound',
+      message: 'No order group ID found in transaction content',
+      related_id: id.toString(),
+      timestamp: new Date().toISOString(),
+    });
+    res.status(400);
+    throw new Error('No order group ID found in transaction content');
+  }
+  const orderGroupId = orderGroupIdMatch[1];
+
+  // Tìm OrderGroup dựa trên _id
+  const orderGroup = await OrderGroup.findOne({
+    _id: orderGroupId,
+    payment_status: 'Chưa thanh toán',
+    isPaymentProcessing: true, // Chỉ xử lý khi đang trong quá trình QR
+  });
+
+  if (!orderGroup) {
+    io.emit('error_notification', {
+      error_type: 'OrderGroupNotFound',
+      message: 'No matching unpaid order group found or not in processing',
+      related_id: orderGroupId,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(400);
+    throw new Error('No matching unpaid order group found or not in processing');
+  }
+
+  // Kiểm tra transferAmount khớp total_cost
+  if (orderGroup.total_cost !== transferAmount) { // Sửa lại từ total_amount thành total_cost
+    io.emit('error_notification', {
+      error_type: 'AmountMismatch',
+      message: `Transfer amount (${transferAmount}) does not match order total (${orderGroup.total_cost})`,
+      related_id: orderGroupId,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(400);
+    throw new Error('Transfer amount does not match order total');
+  }
+
+  // Cập nhật trạng thái
+  orderGroup.payment_method = 'QR';
+  orderGroup.payment_status = 'Đã thanh toán';
+  orderGroup.payment_date = new Date(transactionDate);
+  orderGroup.isPaymentProcessing = false; // Reset sau khi hoàn tất
+  await orderGroup.save();
+
+  // Gọi hàm chung xử lý thành công
+  await processPaymentSuccess(orderGroup, io, req);
+
+  res.status(200).json({ success: true });
+});
+
+export {
+  getOrderGroups,
+  updateOrderGroup,
+  getOrderGroupById,
+  getOrderGroupByTableName,
+  createQrForOrderGroup,
+  webhookPayment,
+};

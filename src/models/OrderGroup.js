@@ -1,50 +1,51 @@
 import mongoose from 'mongoose';
 
-const orderGroupSchema = new mongoose.Schema(
-  {
-    restaurant_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Restaurant',
-      required: [true, 'Restaurant is required'],
-    },
-    table_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Table',
-      required: [true, 'Table is required'],
-    },
-    orders: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Order',
-        default: [],
-      },
-    ],
-    payment_status: {
-      type: String,
-      enum: ['Chưa thanh toán', 'Đã thanh toán'],
-      default: 'Chưa thanh toán',
-    },
-    total_cost: {
-      type: Number,
-      default: 0,
-      min: [0, 'Total cost must be a positive number'],
-    },
-    payment_method: {
-      type: String,
-      enum: ['QR', 'Tiền mặt', null],
-      default: null,
-    },
-    payment_date: {
-      type: Date,
-      default: null,
-    },
+const orderGroupSchema = new mongoose.Schema({
+  restaurant_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Restaurant',
+    required: true,
   },
-  { timestamps: true }
-);
+  table_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Table',
+    required: true,
+  },
+  orders: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Order',
+    },
+  ],
+  total_cost: { 
+    type: Number,
+    required: true,
+    default: 0,
+  },
+  payment_status: {
+    type: String,
+    enum: ['Chưa thanh toán', 'Đã thanh toán'],
+    default: 'Chưa thanh toán',
+  },
+  payment_method: {
+    type: String,
+    enum: ['QR', 'Tiền mặt'],
+    default: null,
+  },
+  payment_date: {
+    type: Date,
+    default: null,
+  },
+  isPaymentProcessing: {
+    type: Boolean,
+    default: false, 
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
 
-// Index cho truy vấn nhanh
-orderGroupSchema.index({ restaurant_id: 1 });
-orderGroupSchema.index({ table_id: 1 });
-orderGroupSchema.index({ payment_date: 1 }); // Thêm index cho payment_date
+const OrderGroup = mongoose.model('OrderGroup', orderGroupSchema);
 
-export default mongoose.model('OrderGroup', orderGroupSchema);
+export default OrderGroup;

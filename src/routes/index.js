@@ -8,6 +8,7 @@ import orderGroupRoutes from './orderGroupRoutes.js';
 import invoiceRoutes from './invoiceRoutes.js';
 import adminRoutes from './adminRoutes.js';
 import restaurantRoutes from './restaurantRoutes.js';
+import webhookRoutes from './webhookRoutes.js'; // Import route mới
 
 const router = express.Router();
 
@@ -20,5 +21,6 @@ router.use('/order-groups', orderGroupRoutes);
 router.use('/invoices', invoiceRoutes);
 router.use('/admin', adminRoutes);
 router.use('/restaurants', restaurantRoutes);
+router.use('/webhook', webhookRoutes); // Gắn route Webhook dưới /webhook
 
 export default router;
