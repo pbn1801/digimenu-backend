@@ -3,6 +3,12 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Restaurant from '../models/Restaurant.js';
 
+// Hàm kiểm tra định dạng email
+const validateEmail = (email) => {
+  const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  return emailRegex.test(email);
+};
+
 /**
  * @swagger
  * /auth/login:
@@ -16,23 +22,31 @@ import Restaurant from '../models/Restaurant.js';
  *           schema:
  *             type: object
  *             properties:
- *               username: { type: string }
+ *               email: { type: string }
  *               password: { type: string }
  *     responses:
  *       200:
  *         description: Login successful
  *       401:
  *         description: Invalid credentials
+ *       400:
+ *         description: Invalid email format
  */
 const loginUser = asyncHandler(async (req, res) => {
-  const { username, password } = req.body;
+  const { email, password } = req.body;
 
-  if (!username || !password) {
+  if (!email || !password) {
     res.status(400);
-    throw new Error('Username and password are required');
+    throw new Error('Email and password are required');
   }
 
-  const user = await User.findOne({ username }).select('+password');
+  // Validate email format
+  if (!validateEmail(email)) {
+    res.status(400);
+    throw new Error('Invalid email format');
+  }
+
+  const user = await User.findOne({ email }).select('+password');
   if (!user) {
     res.status(401);
     throw new Error('Invalid credentials');
@@ -99,7 +113,7 @@ const loginUser = asyncHandler(async (req, res) => {
  *       201:
  *         description: Admin and restaurant created
  *       400:
- *         description: Bad request
+ *         description: Bad request or invalid email format
  */
 const registerAdmin = asyncHandler(async (req, res) => {
   const { username, password, email, phone_number, restaurant } = req.body;
@@ -114,10 +128,22 @@ const registerAdmin = asyncHandler(async (req, res) => {
     throw new Error('Restaurant name, address, and phone are required');
   }
 
+  // Validate email format
+  if (!validateEmail(email)) {
+    res.status(400);
+    throw new Error('Invalid email format');
+  }
+
   const userExists = await User.findOne({ username });
   if (userExists) {
     res.status(400);
     throw new Error('Username already exists');
+  }
+
+  const emailExists = await User.findOne({ email });
+  if (emailExists) {
+    res.status(400);
+    throw new Error('Email already exists');
   }
 
   const newRestaurant = await Restaurant.create({
@@ -148,6 +174,20 @@ const registerAdmin = asyncHandler(async (req, res) => {
   res.status(201).json({
     success: true,
     token,
+    user: {
+      id: adminUser._id,
+      username: adminUser.username,
+      role: adminUser.role,
+      email: adminUser.email,
+      phone_number: adminUser.phone_number,
+      restaurant_id: adminUser.restaurant_id,
+    },
+    restaurant: {
+      id: newRestaurant._id,
+      name: newRestaurant.name,
+      address: newRestaurant.address,
+      phone: newRestaurant.phone,
+    },
   });
 });
 
@@ -166,7 +206,6 @@ const registerAdmin = asyncHandler(async (req, res) => {
  *         description: Not authorized
  */
 const getCurrentUser = asyncHandler(async (req, res) => {
-  // Logic: Dùng req.user từ middleware protect, trả về thông tin người dùng hiện tại
   res.status(200).json({
     success: true,
     data: {
