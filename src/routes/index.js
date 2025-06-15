@@ -21,6 +21,6 @@ router.use('/order-groups', orderGroupRoutes);
 router.use('/invoices', invoiceRoutes);
 router.use('/admin', adminRoutes);
 router.use('/restaurants', restaurantRoutes);
-router.use('/webhook', webhookRoutes); // Gắn route Webhook dưới /webhook
+router.use('/webhook', webhookRoutes); 
 
 export default router;
