@@ -4,7 +4,6 @@ import Table from '../models/Table.js';
 import { createInvoice } from './invoiceController.js';
 import Invoice from '../models/Invoice.js'; // Thêm để populate
 import MenuItem from '../models/MenuItem.js';
-import api from '../utils/api.js'; // Import module API
 import dotenv from 'dotenv';
 dotenv.config();
 

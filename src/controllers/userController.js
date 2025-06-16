@@ -1,30 +1,288 @@
 import asyncHandler from 'express-async-handler';
 import User from '../models/User.js';
 
+// Hàm kiểm tra định dạng email
+const validateEmail = (email) => {
+  const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  return emailRegex.test(email);
+};
+
+// Hàm kiểm tra định dạng số điện thoại
+const validatePhoneNumber = (phone) => {
+  if (!phone) return true; // Cho phép rỗng
+  const phoneRegex = /^\d{10,11}$/;
+  return phoneRegex.test(phone);
+};
+
 /**
  * @swagger
- * /admin/users:
+ * /users/add:
+ *   post:
+ *     summary: Create a new staff by admin
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               username: { type: string }
+ *               email: { type: string }
+ *               phone_number: { type: string }
+ *               password: { type: string }
+ *     responses:
+ *       201:
+ *         description: Staff created successfully
+ *       400:
+ *         description: Bad request or invalid email/phone format
+ *       403:
+ *         description: Admin access required
+ */
+const createUser = asyncHandler(async (req, res) => {
+  const { username, email, phone_number, password } = req.body;
+
+  if (!username || !email || !password) {
+    res.status(400);
+    throw new Error('Username, email, and password are required');
+  }
+
+  // Validate email format
+  if (!validateEmail(email)) {
+    res.status(400);
+    throw new Error('Invalid email format');
+  }
+
+  // Validate phone number format (if provided)
+  if (phone_number && !validatePhoneNumber(phone_number)) {
+    res.status(400);
+    throw new Error('Invalid phone number format (10-11 digits allowed)');
+  }
+
+  const userExists = await User.findOne({ username });
+  if (userExists) {
+    res.status(400);
+    throw new Error('Username already exists');
+  }
+
+  const emailExists = await User.findOne({ email });
+  if (emailExists) {
+    res.status(400);
+    throw new Error('Email already exists');
+  }
+
+  const restaurant_id = req.user.restaurant_id;
+  if (!restaurant_id) {
+    res.status(400);
+    throw new Error('Restaurant not associated with admin');
+  }
+
+  const user = await User.create({
+    username,
+    email,
+    phone_number,
+    password,
+    role: 'staff',
+    restaurant_id,
+  });
+
+  res.status(201).json({
+    success: true,
+    data: {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      phone_number: user.phone_number,
+      role: user.role,
+      restaurant_id: user.restaurant_id,
+    },
+  });
+});
+
+/**
+ * @swagger
+ * /users/view:
  *   get:
- *     summary: Get all users (Admin only)
- *     tags: [Admin]
+ *     summary: Get all staff in the same restaurant
+ *     tags: [Users]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: List of users
+ *         description: List of staff
  *       403:
- *         description: Admin access required
+ *         description: Staff or Admin access required
  */
-const getAllUsers = asyncHandler(async (req, res) => {
-  // Logic: Query User theo restaurant_id từ req.user, trả về danh sách người dùng
-  const users = await User.find({ restaurant_id: req.user.restaurant_id })
-    .select('-password')
-    .sort({ createdAt: -1 });
+const getUsers = asyncHandler(async (req, res) => {
+  const restaurant_id = req.user.restaurant_id;
+  const users = await User.find({ restaurant_id, role: 'staff' }).select('-password');
   res.status(200).json({
     success: true,
-    count: users.length,
     data: users,
   });
 });
 
-export { getAllUsers };
+/**
+ * @swagger
+ * /users/view/{id}:
+ *   get:
+ *     summary: Get staff details by ID
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Staff details
+ *       404:
+ *         description: Staff not found
+ *       403:
+ *         description: Staff or Admin access required
+ */
+const getUserById = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id).select('-password');
+  if (!user || user.restaurant_id.toString() !== req.user.restaurant_id.toString()) {
+    res.status(404);
+    throw new Error('Staff not found');
+  }
+  res.status(200).json({
+    success: true,
+    data: user,
+  });
+});
+
+/**
+ * @swagger
+ * /users/edit/{id}:
+ *   put:
+ *     summary: Update staff by admin
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               username: { type: string }
+ *               email: { type: string }
+ *               phone_number: { type: string }
+ *               password: { type: string }
+ *     responses:
+ *       200:
+ *         description: Staff updated successfully
+ *       400:
+ *         description: Bad request or invalid email/phone format
+ *       403:
+ *         description: Admin access required
+ *       404:
+ *         description: Staff not found
+ */
+const updateUser = asyncHandler(async (req, res) => {
+  const { username, email, phone_number, password } = req.body;
+  const user = await User.findById(req.params.id);
+
+  if (!user || user.restaurant_id.toString() !== req.user.restaurant_id.toString()) {
+    res.status(404);
+    throw new Error('Staff not found');
+  }
+
+  if (username) {
+    const userExists = await User.findOne({ username, _id: { $ne: user._id } });
+    if (userExists) {
+      res.status(400);
+      throw new Error('Username already exists');
+    }
+    user.username = username;
+  }
+
+  if (email) {
+    if (!validateEmail(email)) {
+      res.status(400);
+      throw new Error('Invalid email format');
+    }
+    const emailExists = await User.findOne({ email, _id: { $ne: user._id } });
+    if (emailExists) {
+      res.status(400);
+      throw new Error('Email already exists');
+    }
+    user.email = email;
+  }
+
+  if (phone_number) {
+    if (!validatePhoneNumber(phone_number)) {
+      res.status(400);
+      throw new Error('Invalid phone number format (10-11 digits allowed)');
+    }
+    user.phone_number = phone_number;
+  }
+
+  if (password) user.password = password;
+
+  const updatedUser = await user.save();
+  res.status(200).json({
+    success: true,
+    data: {
+      id: updatedUser._id,
+      username: updatedUser.username,
+      email: updatedUser.email,
+      phone_number: updatedUser.phone_number,
+      role: updatedUser.role,
+      restaurant_id: updatedUser.restaurant_id,
+    },
+  });
+});
+
+/**
+ * @swagger
+ * /users/delete/{id}:
+ *   delete:
+ *     summary: Delete staff by admin
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Staff deleted successfully
+ *       403:
+ *         description: Admin access required
+ *       404:
+ *         description: Staff not found
+ */
+const deleteUser = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id);
+
+  if (!user || user.restaurant_id.toString() !== req.user.restaurant_id.toString()) {
+    res.status(404);
+    throw new Error('Staff not found');
+  }
+
+  await User.findByIdAndDelete(req.params.id);
+  res.status(200).json({
+    success: true,
+    data: {},
+  });
+});
+
+export { createUser, getUsers, getUserById, updateUser, deleteUser };

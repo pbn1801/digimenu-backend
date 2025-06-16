@@ -28,7 +28,6 @@ const userSchema = new mongoose.Schema(
     },
     phone_number: {
       type: String,
-      required: [true, 'Phone number is required'],
       trim: true,
     },
     restaurant_id: {

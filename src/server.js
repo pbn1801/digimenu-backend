@@ -53,7 +53,7 @@ io.on('connection', (socket) => {
   socket.join('staff_room');
   console.log(`Client ${socket.id} joined staff_room`);
 
-  socket.on('join_room', (room) => {
+  socket.on('join_room', ({ room }) => {
     socket.join(room);
     console.log(`Client ${socket.id} joined room: ${room}`);
   });
