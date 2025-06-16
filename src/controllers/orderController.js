@@ -271,4 +271,34 @@ const getAllOrders = asyncHandler(async (req, res) => {
   });
 });
 
-export { addOrder, getPendingOrders, approveOrder, getAllOrders };
+/**
+ * @swagger
+ * /orders/approved:
+ *   get:
+ *     summary: Get all approved orders for staff (Staff or Admin only)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of approved orders
+ *       403:
+ *         description: Staff or Admin access required
+ */
+const getApprovedOrders = asyncHandler(async (req, res) => {
+  const orders = await Order.find({
+    restaurant_id: req.user.restaurant_id,
+    status: 'Đã nhận',
+  })
+    .populate('table_id', 'name table_number')
+    .populate('items.item_id', 'restaurant_id name price description image_url category_id order_count')
+    .sort({ createdAt: -1 });
+
+  res.status(200).json({
+    success: true,
+    count: orders.length,
+    data: orders,
+  });
+});
+
+export { addOrder, getPendingOrders, approveOrder, getAllOrders, getApprovedOrders };

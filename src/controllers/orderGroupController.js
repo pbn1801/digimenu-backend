@@ -101,7 +101,7 @@ const processPaymentSuccess = async (orderGroup, io, req) => {
  *         description: Filter by payment status
  *     responses:
  *       200:
- *         description: List of order groups
+ *         description: List of order groups with aggregated items
  *       403:
  *         description: Staff or Admin access required
  */
@@ -134,10 +134,44 @@ const getOrderGroups = asyncHandler(async (req, res) => {
     );
   }
 
+  const result = filteredOrderGroups.map(orderGroup => {
+    const aggregatedItems = {};
+    let totalCost = 0;
+
+    orderGroup.orders.forEach(order => {
+      totalCost += order.total_cost;
+      order.items.forEach(item => {
+        const itemId = item.item_id._id.toString();
+        if (!aggregatedItems[itemId]) {
+          aggregatedItems[itemId] = {
+            item_id: item.item_id,
+            quantity: 0,
+            price: item.price,
+          };
+        }
+        aggregatedItems[itemId].quantity += item.quantity;
+      });
+    });
+
+    return {
+      table: orderGroup.table_id,
+      order_group: {
+        _id: orderGroup._id,
+        total_cost: totalCost,
+        payment_status: orderGroup.payment_status,
+        payment_method: orderGroup.payment_method,
+        items: Object.values(aggregatedItems),
+        createdAt: orderGroup.createdAt,
+        updatedAt: orderGroup.updatedAt,
+        __v: orderGroup.__v,
+      },
+    };
+  });
+
   res.status(200).json({
     success: true,
-    count: filteredOrderGroups.length,
-    data: filteredOrderGroups,
+    count: result.length,
+    data: result,
   });
 });
 
@@ -214,9 +248,48 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
   // Gọi hàm chung xử lý thành công
   await processPaymentSuccess(orderGroup, io, req);
 
+  const populatedOrderGroup = await OrderGroup.findById(orderGroup._id)
+    .populate('table_id', 'name table_number')
+    .populate({
+      path: 'orders',
+      populate: {
+        path: 'items.item_id',
+        select: 'restaurant_id name price description image_url category_id order_count',
+      },
+    });
+
+  const aggregatedItems = {};
+  let totalCost = 0;
+  populatedOrderGroup.orders.forEach(order => {
+    totalCost += order.total_cost;
+    order.items.forEach(item => {
+      const itemId = item.item_id._id.toString();
+      if (!aggregatedItems[itemId]) {
+        aggregatedItems[itemId] = {
+          item_id: item.item_id,
+          quantity: 0,
+          price: item.price,
+        };
+      }
+      aggregatedItems[itemId].quantity += item.quantity;
+    });
+  });
+
   res.status(200).json({
     success: true,
-    data: orderGroup,
+    data: {
+      table: populatedOrderGroup.table_id,
+      order_group: {
+        _id: populatedOrderGroup._id,
+        total_cost: totalCost,
+        payment_status: populatedOrderGroup.payment_status,
+        payment_method: populatedOrderGroup.payment_method,
+        items: Object.values(aggregatedItems),
+        createdAt: populatedOrderGroup.createdAt,
+        updatedAt: populatedOrderGroup.updatedAt,
+        __v: populatedOrderGroup.__v,
+      },
+    },
   });
 });
 
@@ -236,7 +309,7 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
  *           type: string
  *     responses:
  *       200:
- *         description: Order group details
+ *         description: Order group details with aggregated items
  *       404:
  *         description: Order group not found
  *       403:
@@ -261,9 +334,38 @@ const getOrderGroupById = asyncHandler(async (req, res) => {
     throw new Error('Order group not found');
   }
 
+  const aggregatedItems = {};
+  let totalCost = 0;
+  orderGroup.orders.forEach(order => {
+    totalCost += order.total_cost;
+    order.items.forEach(item => {
+      const itemId = item.item_id._id.toString();
+      if (!aggregatedItems[itemId]) {
+        aggregatedItems[itemId] = {
+          item_id: item.item_id,
+          quantity: 0,
+          price: item.price,
+        };
+      }
+      aggregatedItems[itemId].quantity += item.quantity;
+    });
+  });
+
   res.status(200).json({
     success: true,
-    data: orderGroup,
+    data: {
+      table: orderGroup.table_id,
+      order_group: {
+        _id: orderGroup._id,
+        total_cost: totalCost,
+        payment_status: orderGroup.payment_status,
+        payment_method: orderGroup.payment_method,
+        items: Object.values(aggregatedItems),
+        createdAt: orderGroup.createdAt,
+        updatedAt: orderGroup.updatedAt,
+        __v: orderGroup.__v,
+      },
+    },
   });
 });
 
@@ -284,7 +386,7 @@ const getOrderGroupById = asyncHandler(async (req, res) => {
  *         description: Table number (e.g., 1, 2, 3)
  *     responses:
  *       200:
- *         description: Unpaid order group details
+ *         description: Unpaid order group details with aggregated items
  *       404:
  *         description: Table or unpaid order group not found
  *       403:
@@ -338,8 +440,22 @@ const getOrderGroupByTableName = asyncHandler(async (req, res) => {
     });
   }
 
-  // Sort orders by createdAt (ascending)
-  const orders = orderGroup.orders.sort((a, b) => a.createdAt - b.createdAt);
+  const aggregatedItems = {};
+  let totalCost = 0;
+  orderGroup.orders.forEach(order => {
+    totalCost += order.total_cost;
+    order.items.forEach(item => {
+      const itemId = item.item_id._id.toString();
+      if (!aggregatedItems[itemId]) {
+        aggregatedItems[itemId] = {
+          item_id: item.item_id,
+          quantity: 0,
+          price: item.price,
+        };
+      }
+      aggregatedItems[itemId].quantity += item.quantity;
+    });
+  });
 
   res.status(200).json({
     success: true,
@@ -351,10 +467,13 @@ const getOrderGroupByTableName = asyncHandler(async (req, res) => {
       },
       order_group: {
         _id: orderGroup._id,
-        total_cost: orderGroup.total_cost, // Sửa lại từ total_amount thành total_cost
+        total_cost: totalCost,
         payment_status: orderGroup.payment_status,
         payment_method: orderGroup.payment_method,
-        orders: orders,
+        items: Object.values(aggregatedItems),
+        createdAt: orderGroup.createdAt,
+        updatedAt: orderGroup.updatedAt,
+        __v: orderGroup.__v,
       },
     },
   });
