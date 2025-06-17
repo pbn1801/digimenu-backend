@@ -69,11 +69,11 @@ const createCategory = asyncHandler(async (req, res) => {
  * @swagger
  * /categories/all:
  *   get:
- *     summary: Get all categories including "Món khác" for unclassified items
+ *     summary: Get all categories including "Món khác" for unclassified items with item count
  *     tags: [Categories]
  *     responses:
  *       200:
- *         description: List of categories
+ *         description: List of categories with item counts
  *         content:
  *           application/json:
  *             schema:
@@ -101,6 +101,9 @@ const createCategory = asyncHandler(async (req, res) => {
  *                             type: string
  *                           name:
  *                             type: string
+ *                       item_count:
+ *                         type: integer
+ *                         description: Total number of menu items in the category (including hidden)
  */
 const getCategories = asyncHandler(async (req, res) => {
   // Lấy tất cả category
@@ -110,24 +113,46 @@ const getCategories = asyncHandler(async (req, res) => {
   // Lấy danh sách restaurant_id duy nhất từ categories
   const restaurantIds = [...new Set(categories.map(cat => cat.restaurant_id._id.toString()))];
 
+  // Tạo mảng để lưu danh sách category với item_count
+  const result = [];
+
+  // Xử lý từng category có trong database
+  for (const category of categories) {
+    const itemCount = await MenuItem.countDocuments({
+      restaurant_id: category.restaurant_id._id,
+      category_id: category._id,
+    });
+    result.push({
+      _id: category._id,
+      name: category.name,
+      description: category.description,
+      restaurant_id: category.restaurant_id,
+      item_count: itemCount,
+    });
+  }
+
   // Xử lý "Món khác" cho mỗi restaurant_id
   for (const restaurantId of restaurantIds) {
-    const unclassifiedCount = await MenuItem.countDocuments({ restaurant_id: restaurantId, category_id: null, status: 'visible' });
+    const unclassifiedCount = await MenuItem.countDocuments({
+      restaurant_id: restaurantId,
+      category_id: null,
+    });
     if (unclassifiedCount > 0) {
       const restaurantName = categories.find(cat => cat.restaurant_id._id.toString() === restaurantId)?.restaurant_id.name || 'Unknown';
-      categories.push({
+      result.push({
         _id: `uncategorized-${restaurantId}`,
         name: 'Món khác',
         description: 'Các món chưa được phân loại',
         restaurant_id: { _id: restaurantId, name: restaurantName },
+        item_count: unclassifiedCount,
       });
     }
   }
 
   res.status(200).json({
     success: true,
-    count: categories.length,
-    data: categories,
+    count: result.length,
+    data: result,
   });
 });
 
@@ -209,7 +234,7 @@ const getCategoryById = asyncHandler(async (req, res) => {
       description: 'Các món chưa được phân loại',
       restaurant_id: { _id: restaurantId, name: 'Unknown' },
     };
-    menuItems = await MenuItem.find({ restaurant_id: restaurantId, category_id: null, status: 'visible' })
+    menuItems = await MenuItem.find({ restaurant_id: restaurantId, category_id: null })
       .select('_id name price description image_url order_count status');
   } else {
     category = await Category.findById(id)
@@ -218,7 +243,7 @@ const getCategoryById = asyncHandler(async (req, res) => {
       res.status(404);
       throw new Error('Category not found');
     }
-    menuItems = await MenuItem.find({ restaurant_id: category.restaurant_id._id, category_id: id, status: 'visible' })
+    menuItems = await MenuItem.find({ restaurant_id: category.restaurant_id._id, category_id: id })
       .select('_id name price description image_url order_count status');
   }
 
