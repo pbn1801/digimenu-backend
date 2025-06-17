@@ -211,32 +211,31 @@ const getOrderGroups = asyncHandler(async (req, res) => {
  *       200:
  *         description: Order group updated
  *       404:
- *         description: Order group not found or being processed
+ *         description: Order group not found
  *       403:
  *         description: Staff or Admin access required
  *       400:
- *         description: Invalid payment method
+ *         description: Invalid payment method or already paid
  */
 const updateOrderGroup = asyncHandler(async (req, res) => {
   const io = req.app.get('io');
   const finalPaymentMethod = 'Tiền mặt'; // Mặc định payment_method là Tiền mặt
 
-  // Kiểm tra isPaymentProcessing
+  // Tìm OrderGroup
   const orderGroup = await OrderGroup.findOne({
     _id: req.params.id,
     restaurant_id: req.user.restaurant_id,
-    isPaymentProcessing: false,
   });
 
   if (!orderGroup) {
     io.emit('error_notification', {
       error_type: 'OrderGroupNotFound',
-      message: 'Order group not found or being processed',
+      message: 'Order group not found',
       related_id: req.params.id,
       timestamp: new Date().toISOString(),
     });
     res.status(404);
-    throw new Error('Order group not found or being processed');
+    throw new Error('Order group not found');
   }
 
   // Kiểm tra trạng thái trước khi cập nhật
@@ -260,7 +259,7 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
   orderGroup.payment_date = new Date();
   await orderGroup.save();
 
-  // Gọi hàm chung xử lý thành công chỉ khi trạng thái thay đổi
+  // Gọi hàm chung xử lý thành công
   await processPaymentSuccess(orderGroup, io, req);
 
   const populatedOrderGroup = await OrderGroup.findById(orderGroup._id)
@@ -545,6 +544,8 @@ const getOrderGroupByTableName = asyncHandler(async (req, res) => {
  *         description: Order group not found
  *       403:
  *         description: Staff or Admin access required
+ *       400:
+ *         description: Order group already paid
  */
 const createQrForOrderGroup = asyncHandler(async (req, res) => {
   const io = req.app.get('io');
@@ -575,10 +576,6 @@ const createQrForOrderGroup = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error('Order group already paid');
   }
-
-  // Đặt isPaymentProcessing khi tạo QR
-  orderGroup.isPaymentProcessing = true;
-  await orderGroup.save();
 
   // Tạo URL QR với tham chiếu orderGroup._id
   const qr_code_url = `https://qr.sepay.vn/img?acc=4711738273&bank=BIDV&amount=${orderGroup.total_cost}&des=Thanh%20toan%20don%20${orderGroup._id.toString()}`;
@@ -660,18 +657,17 @@ const webhookPayment = asyncHandler(async (req, res) => {
   const orderGroup = await OrderGroup.findOne({
     _id: orderGroupId,
     payment_status: 'Chưa thanh toán',
-    isPaymentProcessing: true,
   }).populate('table_id', 'table_number');
 
   if (!orderGroup) {
     io.to('staff_room').emit('error_notification', {
       error_type: 'OrderGroupNotFound',
-      message: 'No matching unpaid order group found or not in processing',
+      message: 'No matching unpaid order group found',
       related_id: orderGroupId,
       timestamp: new Date().toISOString(),
     });
     res.status(400);
-    throw new Error('No matching unpaid order group found or not in processing');
+    throw new Error('No matching unpaid order group found');
   }
 
   if (orderGroup.total_cost !== transferAmount) {
@@ -688,7 +684,6 @@ const webhookPayment = asyncHandler(async (req, res) => {
   orderGroup.payment_method = 'QR';
   orderGroup.payment_status = 'Đã thanh toán';
   orderGroup.payment_date = new Date(transactionDate);
-  orderGroup.isPaymentProcessing = false;
   await orderGroup.save();
 
   await processPaymentSuccess(orderGroup, io, req);
