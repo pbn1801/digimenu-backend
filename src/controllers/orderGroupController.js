@@ -207,16 +207,6 @@ const getOrderGroups = asyncHandler(async (req, res) => {
  *         required: true
  *         schema:
  *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               payment_method:
- *                 type: string
- *                 enum: ['Tiền mặt']
  *     responses:
  *       200:
  *         description: Order group updated
@@ -229,7 +219,7 @@ const getOrderGroups = asyncHandler(async (req, res) => {
  */
 const updateOrderGroup = asyncHandler(async (req, res) => {
   const io = req.app.get('io');
-  const { payment_method } = req.body;
+  const finalPaymentMethod = 'Tiền mặt'; // Mặc định payment_method là Tiền mặt
 
   // Kiểm tra isPaymentProcessing
   const orderGroup = await OrderGroup.findOne({
@@ -247,13 +237,6 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
     });
     res.status(404);
     throw new Error('Order group not found or being processed');
-  }
-
-  // Mặc định payment_method là Tiền mặt nếu không truyền
-  const finalPaymentMethod = payment_method || 'Tiền mặt';
-  if (finalPaymentMethod !== 'Tiền mặt') {
-    res.status(400);
-    throw new Error('Only cash payment is allowed for manual confirmation');
   }
 
   // Kiểm tra trạng thái trước khi cập nhật
