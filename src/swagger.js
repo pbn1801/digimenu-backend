@@ -3,13 +3,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from 'dotenv';
 
-config(); // Load biến môi trường
+config(); // Load biến môi trường từ .env
 const NGROK_API_KEY = process.env.NGROK_API_KEY;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Nếu dùng Node >=18, có thể dùng fetch mà không cần import
+// Hàm lấy public ngrok URL
 async function getNgrokUrl() {
   try {
     const res = await fetch('https://api.ngrok.com/tunnels', {
@@ -28,8 +28,10 @@ async function getNgrokUrl() {
   }
 }
 
+// Lấy URL ngrok nếu có
 const ngrokUrl = await getNgrokUrl();
 
+// Định nghĩa Swagger
 const options = {
   definition: {
     openapi: '3.0.0',
@@ -40,13 +42,19 @@ const options = {
     },
     servers: [
       {
+        url: 'https://digimenu-backend-production.up.railway.app/api',
+        description: 'Production on Railway',
+      },
+      ...(ngrokUrl
+        ? [{
+            url: `${ngrokUrl}/api`,
+            description: 'Ngrok tunnel',
+          }]
+        : []),
+      {
         url: 'http://localhost:5000/api',
         description: 'Local development',
       },
-      ...(ngrokUrl ? [{
-        url: `${ngrokUrl}/api`,
-        description: 'Ngrok tunnel',
-      }] : []),
     ],
     components: {
       securitySchemes: {
@@ -59,7 +67,7 @@ const options = {
     },
     security: [],
   },
-  apis: [path.join(__dirname, 'controllers', '*.js')],
+  apis: [path.join(__dirname, 'controllers', '*.js')], // đường dẫn chứa các file swagger comment
 };
 
 const swaggerSpec = swaggerJsdoc(options);
