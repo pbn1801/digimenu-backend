@@ -69,7 +69,7 @@ const createCategory = asyncHandler(async (req, res) => {
  * @swagger
  * /categories/all:
  *   get:
- *     summary: Get all categories
+ *     summary: Get all categories including "Món khác" for unclassified items
  *     tags: [Categories]
  *     responses:
  *       200:
@@ -103,8 +103,26 @@ const createCategory = asyncHandler(async (req, res) => {
  *                             type: string
  */
 const getCategories = asyncHandler(async (req, res) => {
+  // Lấy tất cả category
   const categories = await Category.find()
     .populate('restaurant_id', 'name');
+
+  // Lấy danh sách restaurant_id duy nhất từ categories
+  const restaurantIds = [...new Set(categories.map(cat => cat.restaurant_id._id.toString()))];
+
+  // Xử lý "Món khác" cho mỗi restaurant_id
+  for (const restaurantId of restaurantIds) {
+    const unclassifiedCount = await MenuItem.countDocuments({ restaurant_id: restaurantId, category_id: null, status: 'visible' });
+    if (unclassifiedCount > 0) {
+      const restaurantName = categories.find(cat => cat.restaurant_id._id.toString() === restaurantId)?.restaurant_id.name || 'Unknown';
+      categories.push({
+        _id: `uncategorized-${restaurantId}`,
+        name: 'Món khác',
+        description: 'Các món chưa được phân loại',
+        restaurant_id: { _id: restaurantId, name: restaurantName },
+      });
+    }
+  }
 
   res.status(200).json({
     success: true,
@@ -117,7 +135,7 @@ const getCategories = asyncHandler(async (req, res) => {
  * @swagger
  * /categories/get/{id}:
  *   get:
- *     summary: Get a category by ID
+ *     summary: Get a category by ID with menu items and count
  *     tags: [Categories]
  *     parameters:
  *       - in: path
@@ -125,10 +143,10 @@ const getCategories = asyncHandler(async (req, res) => {
  *         required: true
  *         schema:
  *           type: string
- *         description: ID of the category
+ *         description: ID of the category or 'uncategorized-<restaurant_id>' for unclassified items
  *     responses:
  *       200:
- *         description: Category details
+ *         description: Category details with menu items and count
  *         content:
  *           application/json:
  *             schema:
@@ -152,21 +170,70 @@ const getCategories = asyncHandler(async (req, res) => {
  *                           type: string
  *                         name:
  *                           type: string
+ *                     menu_items:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           price:
+ *                             type: number
+ *                           description:
+ *                             type: string
+ *                           image_url:
+ *                             type: string
+ *                           order_count:
+ *                             type: number
+ *                           status:
+ *                             type: string
+ *                             enum: ['visible', 'hidden']
+ *                     item_count:
+ *                       type: integer
  *       404:
  *         description: Category not found
  */
 const getCategoryById = asyncHandler(async (req, res) => {
-  const category = await Category.findById(req.params.id)
-    .populate('restaurant_id', 'name');
+  const { id } = req.params;
 
-  if (!category) {
-    res.status(404);
-    throw new Error('Category not found');
+  let category;
+  let menuItems;
+
+  if (id.startsWith('uncategorized-')) {
+    const restaurantId = id.split('-')[1];
+    category = {
+      _id: id,
+      name: 'Món khác',
+      description: 'Các món chưa được phân loại',
+      restaurant_id: { _id: restaurantId, name: 'Unknown' },
+    };
+    menuItems = await MenuItem.find({ restaurant_id: restaurantId, category_id: null, status: 'visible' })
+      .select('_id name price description image_url order_count status');
+  } else {
+    category = await Category.findById(id)
+      .populate('restaurant_id', 'name');
+    if (!category) {
+      res.status(404);
+      throw new Error('Category not found');
+    }
+    menuItems = await MenuItem.find({ restaurant_id: category.restaurant_id._id, category_id: id, status: 'visible' })
+      .select('_id name price description image_url order_count status');
   }
+
+  const itemCount = menuItems.length;
 
   res.status(200).json({
     success: true,
-    data: category,
+    data: {
+      _id: category._id,
+      name: category.name,
+      description: category.description,
+      restaurant_id: category.restaurant_id,
+      menu_items: menuItems,
+      item_count: itemCount,
+    },
   });
 });
 

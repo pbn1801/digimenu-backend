@@ -245,11 +245,11 @@ const getMenuItemsByCategory = asyncHandler(async (req, res) => {
  * @swagger
  * /menu-items/grouped-by-category:
  *   get:
- *     summary: Get all menu items grouped by category (Public)
+ *     summary: Get all menu items grouped by category with item count (Public)
  *     tags: [MenuItems]
  *     responses:
  *       200:
- *         description: List of menu items grouped by category
+ *         description: List of menu items grouped by category with item count
  *         content:
  *           application/json:
  *             schema:
@@ -261,6 +261,8 @@ const getMenuItemsByCategory = asyncHandler(async (req, res) => {
  *                     type: string
  *                   name:
  *                     type: string
+ *                   item_count:
+ *                     type: integer
  *                   products:
  *                     type: array
  *                     items:
@@ -321,6 +323,7 @@ const getMenuItemsGroupedByCategory = asyncHandler(async (req, res) => {
         _id: '$category_details._id',
         name: { $first: '$category_details.name' },
         status: { $first: '$category_details.status' },
+        item_count: { $sum: 1 },
         products: {
           $push: {
             id: '$_id',
@@ -342,21 +345,48 @@ const getMenuItemsGroupedByCategory = asyncHandler(async (req, res) => {
         id: '$_id',
         name: 1,
         status: 1,
+        item_count: 1,
         products: 1,
       },
     },
   ]);
 
-  // Chuyển đổi dữ liệu để phù hợp với cấu trúc mong muốn
+  // Thêm nhóm "Món khác" cho các item không có category
+  const unclassifiedItems = await MenuItem.find({ category_id: null, status: 'visible' })
+    .populate('restaurant_id', 'name')
+    .select('_id name price description image_url order_count status restaurant_id');
+
+  if (unclassifiedItems.length > 0) {
+    menuItems.push({
+      _id: null,
+      id: 'uncategorized',
+      name: 'Món khác',
+      status: 'visible',
+      item_count: unclassifiedItems.length,
+      products: unclassifiedItems.map(item => ({
+        id: item._id,
+        name: item.name,
+        price: item.price,
+        description: item.description,
+        image_url: item.image_url,
+        order_count: item.order_count,
+        status: item.status,
+        category_id: { _id: null, name: 'Món khác', status: 'visible' },
+        restaurant_id: item.restaurant_id,
+      })),
+    });
+  }
+
   const responseData = menuItems.map((category) => ({
-    id: category._id || 'uncategorized',
+    id: category.id || 'uncategorized',
     name: category.name || 'Món khác',
-    products: category.products,
+    item_count: category.item_count || 0,
+    products: category.products || [],
   }));
 
   res.status(200).json({
     success: true,
-    count: responseData.reduce((sum, cat) => sum + cat.products.length, 0),
+    count: responseData.reduce((sum, cat) => sum + (cat.item_count || 0), 0),
     data: responseData,
   });
 });
