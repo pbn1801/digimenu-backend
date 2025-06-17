@@ -38,23 +38,31 @@ const processPaymentSuccess = async (orderGroup, io, req) => {
     });
   }
 
-  const itemCounts = {};
-  for (const order of populatedOrderGroup.orders) {
-    for (const item of order.items) {
-      const itemId = item.item_id._id.toString();
-      itemCounts[itemId] = (itemCounts[itemId] || 0) + (item.quantity || 1);
+  // Chỉ tăng order_count nếu payment_status là 'Đã thanh toán' và chưa được xử lý trước đó
+  if (orderGroup.payment_status === 'Đã thanh toán' && !orderGroup.isOrderCountProcessed) {
+    const itemCounts = {};
+    for (const order of populatedOrderGroup.orders || []) {
+      for (const item of order.items || []) {
+        const itemId = item.item_id?._id?.toString();
+        if (itemId) {
+          itemCounts[itemId] = (itemCounts[itemId] || 0) + (item.quantity || 1);
+        }
+      }
     }
-  }
 
-  const bulkUpdates = Object.entries(itemCounts).map(([itemId, count]) => ({
-    updateOne: {
-      filter: { _id: itemId },
-      update: { $inc: { order_count: count } },
-    },
-  }));
+    const bulkUpdates = Object.entries(itemCounts).map(([itemId, count]) => ({
+      updateOne: {
+        filter: { _id: itemId },
+        update: { $inc: { order_count: count } },
+      },
+    }));
 
-  if (bulkUpdates.length > 0) {
-    await MenuItem.bulkWrite(bulkUpdates);
+    if (bulkUpdates.length > 0) {
+      await MenuItem.bulkWrite(bulkUpdates);
+    }
+    // Đánh dấu rằng order_count đã được xử lý
+    orderGroup.isOrderCountProcessed = true;
+    await orderGroup.save();
   }
 
   let invoice;
@@ -130,7 +138,7 @@ const getOrderGroups = asyncHandler(async (req, res) => {
   let filteredOrderGroups = orderGroups;
   if (payment_status === 'Chưa thanh toán') {
     filteredOrderGroups = orderGroups.filter(orderGroup =>
-      orderGroup.orders.some(order => order.status === 'Đã nhận')
+      orderGroup.orders && orderGroup.orders.some(order => order.status === 'Đã nhận')
     );
   }
 
@@ -138,20 +146,30 @@ const getOrderGroups = asyncHandler(async (req, res) => {
     const aggregatedItems = {};
     let totalCost = 0;
 
-    orderGroup.orders.forEach(order => {
-      totalCost += order.total_cost;
-      order.items.forEach(item => {
-        const itemId = item.item_id._id.toString();
-        if (!aggregatedItems[itemId]) {
-          aggregatedItems[itemId] = {
-            item_id: item.item_id,
-            quantity: 0,
-            price: item.price,
-          };
+    if (orderGroup.orders) {
+      orderGroup.orders.forEach(order => {
+        if (order && order.total_cost) {
+          totalCost += order.total_cost;
         }
-        aggregatedItems[itemId].quantity += item.quantity;
+        if (order && order.items) {
+          order.items.forEach(item => {
+            if (item && item.item_id && item.price) {
+              const itemId = item.item_id._id?.toString();
+              if (itemId) {
+                if (!aggregatedItems[itemId]) {
+                  aggregatedItems[itemId] = {
+                    item_id: item.item_id,
+                    quantity: 0,
+                    price: item.price,
+                  };
+                }
+                aggregatedItems[itemId].quantity += item.quantity || 1;
+              }
+            }
+          });
+        }
       });
-    });
+    }
 
     return {
       table: orderGroup.table_id,
@@ -238,14 +256,28 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
     throw new Error('Only cash payment is allowed for manual confirmation');
   }
 
-  // Cập nhật trạng thái
+  // Kiểm tra trạng thái trước khi cập nhật
   const oldPaymentStatus = orderGroup.payment_status;
+  if (oldPaymentStatus === 'Đã thanh toán') {
+    io.emit('error_notification', {
+      error_type: 'PaymentAlreadyProcessed',
+      message: 'Order group already paid',
+      related_id: req.params.id,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(400).json({
+      success: false,
+      message: 'Order group already paid',
+    });
+  }
+
+  // Cập nhật trạng thái
   orderGroup.payment_method = finalPaymentMethod;
   orderGroup.payment_status = 'Đã thanh toán';
   orderGroup.payment_date = new Date();
   await orderGroup.save();
 
-  // Gọi hàm chung xử lý thành công
+  // Gọi hàm chung xử lý thành công chỉ khi trạng thái thay đổi
   await processPaymentSuccess(orderGroup, io, req);
 
   const populatedOrderGroup = await OrderGroup.findById(orderGroup._id)
@@ -260,20 +292,30 @@ const updateOrderGroup = asyncHandler(async (req, res) => {
 
   const aggregatedItems = {};
   let totalCost = 0;
-  populatedOrderGroup.orders.forEach(order => {
-    totalCost += order.total_cost;
-    order.items.forEach(item => {
-      const itemId = item.item_id._id.toString();
-      if (!aggregatedItems[itemId]) {
-        aggregatedItems[itemId] = {
-          item_id: item.item_id,
-          quantity: 0,
-          price: item.price,
-        };
+  if (populatedOrderGroup.orders) {
+    populatedOrderGroup.orders.forEach(order => {
+      if (order && order.total_cost) {
+        totalCost += order.total_cost;
       }
-      aggregatedItems[itemId].quantity += item.quantity;
+      if (order && order.items) {
+        order.items.forEach(item => {
+          if (item && item.item_id && item.price) {
+            const itemId = item.item_id._id?.toString();
+            if (itemId) {
+              if (!aggregatedItems[itemId]) {
+                aggregatedItems[itemId] = {
+                  item_id: item.item_id,
+                  quantity: 0,
+                  price: item.price,
+                };
+              }
+              aggregatedItems[itemId].quantity += item.quantity || 1;
+            }
+          }
+        });
+      }
     });
-  });
+  }
 
   res.status(200).json({
     success: true,
@@ -336,20 +378,30 @@ const getOrderGroupById = asyncHandler(async (req, res) => {
 
   const aggregatedItems = {};
   let totalCost = 0;
-  orderGroup.orders.forEach(order => {
-    totalCost += order.total_cost;
-    order.items.forEach(item => {
-      const itemId = item.item_id._id.toString();
-      if (!aggregatedItems[itemId]) {
-        aggregatedItems[itemId] = {
-          item_id: item.item_id,
-          quantity: 0,
-          price: item.price,
-        };
+  if (orderGroup.orders) {
+    orderGroup.orders.forEach(order => {
+      if (order && order.total_cost) {
+        totalCost += order.total_cost;
       }
-      aggregatedItems[itemId].quantity += item.quantity;
+      if (order && order.items) {
+        order.items.forEach(item => {
+          if (item && item.item_id && item.price) {
+            const itemId = item.item_id._id?.toString();
+            if (itemId) {
+              if (!aggregatedItems[itemId]) {
+                aggregatedItems[itemId] = {
+                  item_id: item.item_id,
+                  quantity: 0,
+                  price: item.price,
+                };
+              }
+              aggregatedItems[itemId].quantity += item.quantity || 1;
+            }
+          }
+        });
+      }
     });
-  });
+  }
 
   res.status(200).json({
     success: true,
@@ -442,20 +494,30 @@ const getOrderGroupByTableName = asyncHandler(async (req, res) => {
 
   const aggregatedItems = {};
   let totalCost = 0;
-  orderGroup.orders.forEach(order => {
-    totalCost += order.total_cost;
-    order.items.forEach(item => {
-      const itemId = item.item_id._id.toString();
-      if (!aggregatedItems[itemId]) {
-        aggregatedItems[itemId] = {
-          item_id: item.item_id,
-          quantity: 0,
-          price: item.price,
-        };
+  if (orderGroup.orders) {
+    orderGroup.orders.forEach(order => {
+      if (order && order.total_cost) {
+        totalCost += order.total_cost;
       }
-      aggregatedItems[itemId].quantity += item.quantity;
+      if (order && order.items) {
+        order.items.forEach(item => {
+          if (item && item.item_id && item.price) {
+            const itemId = item.item_id._id.toString();
+            if (itemId) {
+              if (!aggregatedItems[itemId]) {
+                aggregatedItems[itemId] = {
+                  item_id: item.item_id,
+                  quantity: 0,
+                  price: item.price,
+                };
+              }
+              aggregatedItems[itemId].quantity += item.quantity || 1;
+            }
+          }
+        });
+      }
     });
-  });
+  }
 
   res.status(200).json({
     success: true,
@@ -653,7 +715,7 @@ const webhookPayment = asyncHandler(async (req, res) => {
     orderGroupId,
     tableNumber,
     amount: transferAmount,
-    message: `Đơn hàng đã được thanh toán thành công với ${transferAmount} VND.`
+    message: `Đơn hàng đã được thanh toán thành công với ${transferAmount} VND.`,
   });
   console.log(`Emitted payment_success event to staff_room for orderGroupId: ${orderGroupId} and tableNumber: ${tableNumber}`);
 
