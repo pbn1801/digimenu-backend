@@ -717,7 +717,7 @@ const webhookPayment = asyncHandler(async (req, res) => {
     amount: transferAmount,
     message: `Đơn hàng đã được thanh toán thành công với ${transferAmount} VND.`,
   });
-  console.log(`Emitted payment_success event to staff_room for orderGroupId: ${orderGroupId} and tableNumber: ${tableNumber}`);
+  console.log(`Emitted payment_success event to staff_room for orderGroupId: ${orderGroupId}`);
 
   res.status(200).json({ success: true });
 });
