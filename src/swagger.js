@@ -45,6 +45,10 @@ const options = {
         url: 'https://digimenu-backend-production.up.railway.app/api',
         description: 'Production on Railway',
       },
+      {
+        url: 'https://digimenu-backend-m74r.onrender.com/api',
+        description: 'Production on Render',
+      },
       ...(ngrokUrl
         ? [{
             url: `${ngrokUrl}/api`,
