@@ -598,7 +598,7 @@ const createQrForOrderGroup = asyncHandler(async (req, res) => {
   await orderGroup.save();
 
   // Tạo URL QR với tham chiếu orderGroup._id
-  const qr_code_url = `https://qr.sepay.vn/img?acc=96247PBN18&bank=BIDV&amount=${orderGroup.total_cost}&des=Thanh%20toan%20don%20${orderGroup._id.toString()}`;
+  const qr_code_url = `https://qr.sepay.vn/img?acc=4711738273&bank=BIDV&amount=${orderGroup.total_cost}&des=Thanh%20toan%20don%20${orderGroup._id.toString()}`;
 
   res.status(200).json({
     success: true,
