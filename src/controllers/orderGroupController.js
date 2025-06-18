@@ -688,14 +688,15 @@ const webhookPayment = asyncHandler(async (req, res) => {
 
   await processPaymentSuccess(orderGroup, io, req);
 
-  const tableNumber = orderGroup.table_id ? orderGroup.table_id.table_number : 'Unknown';
-  io.to('staff_room').emit('payment_success', {
+  const table_id = orderGroup.table_id ? orderGroup.table_id._id : null;
+  const payload = {
     orderGroupId,
-    tableNumber,
+    table_id,
     amount: transferAmount,
     message: `Đơn hàng đã được thanh toán thành công với số tiền ${transferAmount} VND.`,
-  });
-  console.log(`Emitted payment_success event to staff_room for orderGroupId: ${orderGroupId}`);
+  };
+  io.to('staff_room').emit('payment_success', payload);
+  console.log('Emitted payment_success event payload:', payload);
 
   res.status(200).json({ success: true });
 });
