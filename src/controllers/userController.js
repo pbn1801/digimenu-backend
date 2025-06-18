@@ -18,7 +18,7 @@ const validatePhoneNumber = (phone) => {
  * @swagger
  * /users/add:
  *   post:
- *     summary: Create a new staff by admin
+ *     summary: Create a new user (admin or staff) by admin
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -33,16 +33,17 @@ const validatePhoneNumber = (phone) => {
  *               email: { type: string }
  *               phone_number: { type: string }
  *               password: { type: string }
+ *               role: { type: string, enum: ['admin', 'staff'], default: 'staff' }
  *     responses:
  *       201:
- *         description: Staff created successfully
+ *         description: User created successfully
  *       400:
  *         description: Bad request or invalid email/phone format
  *       403:
  *         description: Admin access required
  */
 const createUser = asyncHandler(async (req, res) => {
-  const { username, email, phone_number, password } = req.body;
+  const { username, email, phone_number, password, role = 'staff' } = req.body;
 
   if (!username || !email || !password) {
     res.status(400);
@@ -79,12 +80,17 @@ const createUser = asyncHandler(async (req, res) => {
     throw new Error('Restaurant not associated with admin');
   }
 
+  if (req.user.role !== 'admin') {
+    res.status(403);
+    throw new Error('Admin access required');
+  }
+
   const user = await User.create({
     username,
     email,
     phone_number,
     password,
-    role: 'staff',
+    role,
     restaurant_id,
   });
 
@@ -105,19 +111,24 @@ const createUser = asyncHandler(async (req, res) => {
  * @swagger
  * /users/view:
  *   get:
- *     summary: Get all staff in the same restaurant
+ *     summary: Get all users (admin and staff) in the same restaurant
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: List of staff
+ *         description: List of users
  *       403:
- *         description: Staff or Admin access required
+ *         description: Admin access required
  */
 const getUsers = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'admin') {
+    res.status(403);
+    throw new Error('Admin access required');
+  }
+
   const restaurant_id = req.user.restaurant_id;
-  const users = await User.find({ restaurant_id, role: 'staff' }).select('-password');
+  const users = await User.find({ restaurant_id }).select('-password');
   res.status(200).json({
     success: true,
     data: users,
@@ -128,7 +139,7 @@ const getUsers = asyncHandler(async (req, res) => {
  * @swagger
  * /users/view/{id}:
  *   get:
- *     summary: Get staff details by ID
+ *     summary: Get user details by ID
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -140,17 +151,22 @@ const getUsers = asyncHandler(async (req, res) => {
  *           type: string
  *     responses:
  *       200:
- *         description: Staff details
+ *         description: User details
  *       404:
- *         description: Staff not found
+ *         description: User not found
  *       403:
- *         description: Staff or Admin access required
+ *         description: Admin access required
  */
 const getUserById = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'admin') {
+    res.status(403);
+    throw new Error('Admin access required');
+  }
+
   const user = await User.findById(req.params.id).select('-password');
   if (!user || user.restaurant_id.toString() !== req.user.restaurant_id.toString()) {
     res.status(404);
-    throw new Error('Staff not found');
+    throw new Error('User not found');
   }
   res.status(200).json({
     success: true,
@@ -162,7 +178,7 @@ const getUserById = asyncHandler(async (req, res) => {
  * @swagger
  * /users/edit/{id}:
  *   put:
- *     summary: Update staff by admin
+ *     summary: Update user (admin or staff) by admin
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -183,23 +199,29 @@ const getUserById = asyncHandler(async (req, res) => {
  *               email: { type: string }
  *               phone_number: { type: string }
  *               password: { type: string }
+ *               role: { type: string, enum: ['admin', 'staff'] }
  *     responses:
  *       200:
- *         description: Staff updated successfully
+ *         description: User updated successfully
  *       400:
  *         description: Bad request or invalid email/phone format
  *       403:
  *         description: Admin access required
  *       404:
- *         description: Staff not found
+ *         description: User not found
  */
 const updateUser = asyncHandler(async (req, res) => {
-  const { username, email, phone_number, password } = req.body;
+  if (req.user.role !== 'admin') {
+    res.status(403);
+    throw new Error('Admin access required');
+  }
+
+  const { username, email, phone_number, password, role } = req.body;
   const user = await User.findById(req.params.id);
 
   if (!user || user.restaurant_id.toString() !== req.user.restaurant_id.toString()) {
     res.status(404);
-    throw new Error('Staff not found');
+    throw new Error('User not found');
   }
 
   if (username) {
@@ -233,6 +255,7 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 
   if (password) user.password = password;
+  if (role && ['admin', 'staff'].includes(role)) user.role = role;
 
   const updatedUser = await user.save();
   res.status(200).json({
@@ -252,7 +275,7 @@ const updateUser = asyncHandler(async (req, res) => {
  * @swagger
  * /users/delete/{id}:
  *   delete:
- *     summary: Delete staff by admin
+ *     summary: Delete user (admin or staff) by admin
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -264,18 +287,23 @@ const updateUser = asyncHandler(async (req, res) => {
  *           type: string
  *     responses:
  *       200:
- *         description: Staff deleted successfully
+ *         description: User deleted successfully
  *       403:
  *         description: Admin access required
  *       404:
- *         description: Staff not found
+ *         description: User not found
  */
 const deleteUser = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'admin') {
+    res.status(403);
+    throw new Error('Admin access required');
+  }
+
   const user = await User.findById(req.params.id);
 
   if (!user || user.restaurant_id.toString() !== req.user.restaurant_id.toString()) {
     res.status(404);
-    throw new Error('Staff not found');
+    throw new Error('User not found');
   }
 
   await User.findByIdAndDelete(req.params.id);
